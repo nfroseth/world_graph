@@ -12,25 +12,6 @@ parse_log = logging.getLogger(__name__)
 parse_log.setLevel(logging.DEBUG)
 parse_log.addHandler(logging.StreamHandler())
 
-PUNCTUATION = [
-    "#",
-    "$",
-    "!",
-    ".",
-    ",",
-    "?",
-    # "/",
-    ":",
-    ";",
-    "`",
-    " ",
-    "-",
-    "+",
-    "=",
-    "|",
-    os.linesep,
-] + [str(i) for i in range(0, 10)]
-
 
 def typed_list_parse(
     file: io.TextIOWrapper, name, parsed_notes: Sequence[Note], args
@@ -56,27 +37,10 @@ def typed_list_parse(
     relations = {}
     tags = []
     while line:
+        line = file.readline()
         for tag in get_tags_from_line(line):
             if tag not in tags:
                 tags.append(tag)
-        # TODO: Save aliases as Relation property
-
-
-# TODO: How are nested Tags handled?
-def get_tags_from_line(line) -> List[str]:
-    pos_tags = [i for i, char in enumerate(line) if char == "#"]
-    tags = []
-    for i in pos_tags:
-        if i == 0 or line[i - 1] == " ":
-            index = next(
-                (index for index, c in enumerate(line[i + 1 :]) if c in PUNCTUATION), -1
-            )
-            if index == -1:
-                tags.append(line[i + 1 :])
-            else:
-                tag = line[i + 1 : index + i + 1]
-                if len(tag) > 0:
-                    tags.append(tag)
 
     return tags
 
@@ -104,20 +68,73 @@ def parse_vault(notes_path: str, note_ext_type: str = ".md", args=None):
         name = note_name(path)
         parse_log.debug(f"Reading note {name=}")
         with open(path, mode="r", encoding="utf-8") as file:
-            typed_list_parse(file, name, parsed_notes, args)
+            tags = typed_list_parse(file, name, parsed_notes, args)
+            for tag in tags:
+                print(f"{tag=}")
 
 
 def main():
     pass
 
+PUNCTUATION = {
+    "#",
+    "$",
+    "!",
+    ".",
+    ",",
+    "?",
+    ":",
+    ";",
+    "`",
+    " ",
+    "+",
+    "=",
+    "|",
+    os.linesep,
+}
+
+# https://help.obsidian.md/Editing+and+formatting/Tags#Tag+format
+# "#/ is a valid tag, but I don't want it"
+def get_tags_from_line(line: str) -> List[str]:
+    tags = []
+    candidate_tag = ""
+    tag_start_pos = 0
+    is_valid_tag = False
+    lower_line = line.lower()
+
+    for idx, char in enumerate(lower_line):
+        does_cand_start_with_tag = next(iter(candidate_tag), 0) == "#"
+
+        if char == "#" or does_cand_start_with_tag:
+            tag_start_pos = idx - len(candidate_tag)
+            if char in PUNCTUATION and is_valid_tag:
+                if tag_start_pos == 0 or lower_line[tag_start_pos - 1] == " ":
+                    tags.append(candidate_tag[1:])
+                candidate_tag = ""
+                is_valid_tag = False
+            elif char in PUNCTUATION:
+                candidate_tag = ""
+            elif char == "/" and candidate_tag != "#":
+                tags.append(candidate_tag[1:])
+
+            is_valid_tag = char.isalpha() or char == "/" or is_valid_tag
+            candidate_tag += char
+    else:
+        if (
+            next(iter(candidate_tag), 0) == "#"
+            and is_valid_tag
+            and (tag_start_pos == 0 or lower_line[tag_start_pos - 1] == " ")
+            and candidate_tag != "#/"
+        ):
+            tags.append(candidate_tag[1:])
+
+    return tags
+
 
 if __name__ == "__main__":
     print("Quacks like a duck, looks like a goose.")
 
-    vault_path = "/home/xoph/SlipBoxCopy/Slip Box"
-    # vault_path = "/home/xoph/repos/github/nfroseth/world_graph/test_vault"
+    # vault_path = "/home/xoph/SlipBoxCopy/Slip Box"
+    vault_path = "/home/xoph/repos/github/nfroseth/world_graph/test_vault"
 
-    # parse_vault(vault_path)
-    example = "This #purchase is an example tag #person/family"
-    tags = get_tags_from_line(example)
-    print(f"{tags=}")
+    parse_vault(vault_path)

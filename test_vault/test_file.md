@@ -1,12 +1,38 @@
 ---
 aliases: []
 tags: daily_journal
+
 ---
 202406020928
 
+#test-test
+#123y
+#1234y-sdf|sdfsd 
+#/
+#person/2
+#1/2
+#2/person
+#person/#family
+#person-#family test stes set
+#person:dfsd- #famil
+#person #sdf 
+#sdf 
+eressres#sdf
+sdfsd # sdfsd 
+-#sdf 
+/#sdfsd 
+sddf #personsdfds48=
+###test #12dy
+#?
+_#test
+/#test
+#?
+
+#sdfs#/#sdfs
+ 
 A journal Entry for:
 # 06-02-2024
-
+#person #person/uWu 
 
 ## Morning
 #### **I am grateful for**
