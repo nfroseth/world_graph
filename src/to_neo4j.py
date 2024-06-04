@@ -205,18 +205,18 @@ def parse_vault(notes_path: str, note_ext_type: str = ".md", args=None):
         parse_log.debug(f"Reading note {name=}")
         with open(path, mode="r", encoding="utf-8") as file:
             # try:
-                note = typed_list_parse(file, name, parsed_notes, args)
-                note.properties[PROP_OBSIDIAN_URL] = obsidian_url(name, VAULT_NAME)
-                note.properties[PROP_PATH] = path
-                note.properties[PROP_VAULT] = VAULT_NAME
-                parsed_notes[name] = note
-            # except Exception as e:
-            #     error_str = (
-            #         f"For Note: {name}",
-            #         f"Exception raised during parsing {path}",
-            #         f"Skipping this note! Please report this {e}",
-            #     )
-            #     parse_log.critical(error_str)
+            note = typed_list_parse(file, name, parsed_notes, args)
+            note.properties[PROP_OBSIDIAN_URL] = obsidian_url(name, VAULT_NAME)
+            note.properties[PROP_PATH] = path
+            note.properties[PROP_VAULT] = VAULT_NAME
+            parsed_notes[name] = note
+        # except Exception as e:
+        #     error_str = (
+        #         f"For Note: {name}",
+        #         f"Exception raised during parsing {path}",
+        #         f"Skipping this note! Please report this {e}",
+        #     )
+        #     parse_log.critical(error_str)
 
     parse_log.info("Finished parsing notes")
     return parsed_notes
@@ -280,8 +280,6 @@ def get_tags_from_line(line: str) -> List[str]:
             tags.append(candidate_tag[1:])
 
     return tags
-
-
 
 
 if __name__ == "__main__":
