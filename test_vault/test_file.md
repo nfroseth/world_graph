@@ -55,6 +55,9 @@ A journal Entry for:
 -
 -
 
+[[Test]]
+[[Test#Header]]
+
 ---
 # Additional Optional Prompts
 
