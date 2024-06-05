@@ -1,9 +1,10 @@
 import logging
-import os
 from typing import List
+from neomodel import StructuredRel, StringProperty, StringProperty, ArrayProperty, RelationshipTo, RelationshipFrom, UniqueIdProperty
+from neomodel.contrib import SemiStructuredNode
 
 
-class Relationship:
+class Link:
     def __init__(self, type: str, properties={}):
         self.type = type
         self.properties = properties
@@ -13,7 +14,6 @@ class Relationship:
 
 
 class Note:
-
     def __init__(
         self,
         name: str,
@@ -30,13 +30,13 @@ class Note:
         self.properties["name"] = name
         self.properties["content"] = content
 
-    def add_out_relationship(self, to: str, relationship: Relationship):
+    def add_out_relationship(self, to: str, relationship: Link):
         if to in self.out_relationships:
             self.out_relationships[to].append(relationship)
         else:
             self.out_relationships[to] = [relationship]
 
-    def add_in_relationship(self, src: str, relationship: Relationship):
+    def add_in_relationship(self, src: str, relationship: Link):
         if src in self.in_relationships:
             self.in_relationships[src].append(relationship)
         else:
@@ -49,6 +49,13 @@ class Note:
     @property
     def content(self):
         return self.properties["content"]
+
+    @property
+    def has_tags(self) -> bool:
+        assert isinstance(self.tags, list) and all(
+            [isinstance(tag, str) for tag in self.tags]
+        ), "Tags are not a list or a tag is not a string"
+        return len(self.tags) > 0
 
     def __str__(self):
         props = [
@@ -67,3 +74,17 @@ class Note:
             except Exception as e:
                 logging.warning("Failed to print some properties.")
         return out_string
+
+class Relationship(StructuredRel):
+    relationship_type = StringProperty(default="inline")
+    context = StringProperty(required=True)
+    parsed_context = StringProperty()
+    link_display_text = StringProperty()
+
+class Node(SemiStructuredNode):
+    uid = UniqueIdProperty()
+    name = StringProperty(required=True)
+    tags = ArrayProperty(StringProperty())
+    content = StringProperty(required=True)
+    out_relationships = RelationshipTo('Node', 'RELATED_TO', model=Relationship)
+    in_relationships = RelationshipFrom('Node', 'RELATED_TO', model=Relationship)

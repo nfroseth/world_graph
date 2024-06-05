@@ -3,6 +3,7 @@ from to_neo4j import get_tags_from_line
 examples = [
     "#/",
     "-#Test",
+    "#test\sers",
     "#person#family This is an example tag ",
     "This #purchase-test is an example tag #person/family",
     "-#Test #123dy",

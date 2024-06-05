@@ -1,5 +1,5 @@
 ---
-aliases: []
+aliases: ["So", "Cool"]
 tags: daily_journal
 
 ---
