@@ -30,7 +30,7 @@ graph_log.addHandler(logging.StreamHandler())
 
 memory = Memory("/home/xoph/repos/github/nfroseth/world_graph/joblib_memory_cache")
 
-ENABLE_MARKDOWN_TO_HTML = True
+ENABLE_MARKDOWN_TO_HTML = False
 
 PROP_OBSIDIAN_URL = "obsidian_url"
 PROP_PATH = (
