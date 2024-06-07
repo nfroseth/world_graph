@@ -181,4 +181,5 @@ def write_vault_vectors_to_disk():
 
 if __name__ == "__main__":
     print("Quacks like a duck, looks like a goose.")
+    # func:write_vault_vectors_to_disk Time: 2821.282993263 #Minutes 47.0213832211
     exit(write_vault_vectors_to_disk())
