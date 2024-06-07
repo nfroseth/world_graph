@@ -21,10 +21,6 @@ from langchain_text_splitters import (
 from to_neo4j import parse_vault
 from note import Note
 
-# embed_log = timing_log.getLogger(__name__)
-# embed_log.setLevel(timing_log.DEBUG)
-# embed_log.addHandler(timing_log.StreamHandler())
-
 timing_log = logging.getLogger(__name__)
 timing_log.setLevel(logging.DEBUG)
 timing_log.addHandler(logging.StreamHandler())
