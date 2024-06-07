@@ -4,6 +4,7 @@ import logging
 from typing import Dict, List, Tuple
 from datetime import datetime
 from functools import wraps
+from pandas import DataFrame
 
 import pathlib
 
@@ -25,8 +26,8 @@ from note import Note
 # embed_log.addHandler(timing_log.StreamHandler())
 
 timing_log = logging.getLogger(__name__)
-timing_log.setLevel(timing_log.INFO)
-timing_log.addHandler(timing_log.StreamHandler())
+timing_log.setLevel(logging.DEBUG)
+timing_log.addHandler(logging.StreamHandler())
 
 memory = Memory("/home/xoph/repos/github/nfroseth/world_graph/joblib_memory_cache")
 
@@ -115,7 +116,7 @@ def chunking(
             md_header_splits = html_splitter.split_text(note.content)
             splits = text_splitter.split_documents(md_header_splits)
             for idx, split in enumerate(splits):
-                chunks.append(split)
+                chunks.append(str(split))
                 chunk_name.append(f"{name}_chunk_{idx}")
         except Exception as e:
             timing_log.critical(
@@ -134,8 +135,8 @@ def write_vault_vectors_to_disk():
     embedding = get_embedding_model()
     timing_log.info("Model loaded, parsing vault...")
 
-    vault_file = "/home/xoph/repos/github/nfroseth/world_graph/test_vault"
-    # vault_file  = "/home/xoph/SlipBoxCopy/Slip Box"
+    # vault_file = "/home/xoph/repos/github/nfroseth/world_graph/test_vault"
+    vault_file  = "/home/xoph/SlipBoxCopy/Slip Box"
     path = pathlib.PurePath(vault_file)
     notes = wrap_notes(path)
     timing_log.info("Vault loaded, chunking...")
@@ -165,11 +166,15 @@ def write_vault_vectors_to_disk():
         f'{path.name}_{model_nick[8:]}_{datetime.now().strftime("%Y-%m-%d_%H:%M:%S")}.pkl'
     )
 
+
     embedded_note_chunks = (chunks, chunk_names, vectors)
+    embedded_note_chunks_columns = ["content_chunk", "note_name", "embedding"]
+    embedded_note_chunks_frame = DataFrame([embedded_note_chunks], columns=embedded_note_chunks_columns) 
 
     timing_log.info("Vectors loaded, saving to disk...")
-    with open(pickle_path, "wb") as handle:
-        pickle.dump(embedded_note_chunks, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    # with open(pickle_path, "wb") as handle:
+    #     pickle.dump(embedded_note_chunks, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    embedded_note_chunks_frame.to_pickle(pickle_path)
 
     timing_log.info("Done")
 
