@@ -2,6 +2,7 @@
 source_texts/
 joblib_memory_cache/
 */Good Faith Schedule.md
+vectors/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
