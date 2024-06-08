@@ -1,10 +1,11 @@
+import itertools
 import re
 import os
 import io
 import logging
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Sequence, Tuple
+from typing import Any, Dict, List, Sequence, Tuple
 
 from joblib import Memory
 from tqdm import tqdm
@@ -20,12 +21,8 @@ from note import Link, Note, Relationship, Node
 
 
 parse_log = logging.getLogger(__name__)
-parse_log.setLevel(logging.DEBUG)
+parse_log.setLevel(logging.INFO)
 parse_log.addHandler(logging.StreamHandler())
-
-graph_log = logging.getLogger(__name__)
-graph_log.setLevel(logging.DEBUG)
-graph_log.addHandler(logging.StreamHandler())
 
 
 memory = Memory("/home/xoph/repos/github/nfroseth/world_graph/joblib_memory_cache")
@@ -45,7 +42,7 @@ VAULT_NAME = "TEST_VAULT"
 CATEGORY_DANGLING = "SMD_dangling"
 CATEGORY_NO_TAGS = "SMD_no_tags"
 
-CLEAR_ON_CONNECT = True
+CLEAR_ON_CONNECT = False
 COMMUNITY_TYPE = "tags"  # tags, folders, none
 
 PUNCTUATION = {
@@ -66,35 +63,13 @@ PUNCTUATION = {
     os.linesep,
 }
 
-OVERLOADED_PROPS = {"id"}  # Property names which can not be used, so prefix is added
-OVERLOADED_PREFIX = "obs_note_property_"
-
-
-def overload_check(note_properties):
-    return {
-        key if key not in OVERLOADED_PREFIX else f"{OVERLOADED_PREFIX}{key}": value
-        for key, value in note_properties.items()
-    }
-
-
-def cypher_replace(input):
-    r = input.replace("-", "_")
-    return r
-
-
-def typed_list_parse(
-    file: io.TextIOWrapper, name, parsed_notes: Sequence[Note], args
-) -> Note:
+def typed_list_parse(file: io.TextIOWrapper, name: str) -> Note:
     line = file.readline()
     note_properties = {}
     while line.strip() != "":
         if line == "---" + os.linesep:
             try:
-                note_properties = parse_yaml_header(file)
-                for key, value in note_properties.items():
-                    if key in OVERLOADED_PROPS:
-                        note_properties[f"{OVERLOADED_PREFIX}{key}"] = value
-                        del note_properties[key]
+                note_properties = parse_obsidian_yaml_header(file)
             except Exception as e:
                 parse_log.critical(
                     f"Detected but Failed to read the properties yaml head from note: {name} with {e}"
@@ -234,16 +209,6 @@ def parse_wikilink(between_brackets: str, note_title: str) -> Tuple[str, str]:
     return "", ""
 
 
-def parse_yaml_header(file):
-    lines = []
-    line = file.readline()
-    while line != "---" + os.linesep and line:
-        lines.append(line)
-        line = file.readline()
-
-    return yaml.safe_load("".join(lines))
-
-
 def note_name(path, extension=".md"):
     return os.path.basename(path)[: -len(extension)]
 
@@ -252,7 +217,7 @@ def obsidian_url(name: str, vault: str) -> str:
     return "obsidian://open?vault=" + quote(vault) + "&file=" + quote(name) + ".md"
 
 
-@memory.cache
+# @memory.cache
 def parse_vault(
     notes_path: str, note_ext_type: str = ".md", args=None
 ) -> Dict[str, Note]:
@@ -265,23 +230,50 @@ def parse_vault(
         name = note_name(path)
         parse_log.debug(f"Reading note {name=}")
         with open(path, mode="r", encoding="utf-8") as file:
-            # try:
-            note = typed_list_parse(file, name, parsed_notes, args)
+            note = typed_list_parse(file, name)
             note.properties[PROP_OBSIDIAN_URL] = obsidian_url(name, VAULT_NAME)
             note.properties[PROP_PATH] = path
             note.properties[PROP_VAULT] = VAULT_NAME
             parsed_notes[name] = note
-        # except Exception as e:
-        #     error_str = (
-        #         f"For Note: {name}",
-        #         f"Exception raised during parsing {path}",
-        #         f"Skipping this note! Please report this {e}",
-        #     )
-        #     parse_log.critical(error_str)
 
     parse_log.info("Finished parsing notes")
     return parsed_notes
 
+
+def parse_obsidian_yaml_header(file):
+    OVERLOADED_PREFIX = "obsidian_note_property_"
+
+    lines = []
+    line = file.readline()
+    while line != "---" + os.linesep and line:
+        lines.append(line)
+        line = file.readline()
+
+    properties = yaml.safe_load("".join(lines))
+
+    for key, value in properties.items():
+        if key == "id":
+            properties[f"{OVERLOADED_PREFIX}{key}"] = value
+            del properties[key]
+        elif key == "tags":
+            properties[key] = from_yaml_string_get_hierarchical_tag(value)
+
+    return properties
+
+
+def from_yaml_string_get_hierarchical_tag(yaml_tags: Any) -> List[str]:
+    tags = []
+    if isinstance(yaml_tags, str):
+        yaml_tags = [single_tag.strip() for single_tag in yaml_tags.split(",")]
+    if isinstance(yaml_tags, List) and all([isinstance(tag, str) for tag in yaml_tags]):
+        for single_tag in yaml_tags:
+            hierarchical_split = single_tag.split("/")
+            for i, j in itertools.combinations(range(len(hierarchical_split) + 1), 2):
+                if i == 0:
+                    tag = "/".join(hierarchical_split[i:j])
+                    if tag not in tags:
+                        tags.append(tag)
+    return tags
 
 # https://help.obsidian.md/Editing+and+formatting/Tags#Tag+format
 # "#/ is a valid tag, but I don't want it"
@@ -339,6 +331,9 @@ def get_community(note: Note) -> str:
         community = str(Path(note.properties[PROP_PATH]).parent)
     return community
 
+def cypher_replace(input):
+    r = input.replace("-", "_")
+    return r
 
 @db.write_transaction
 def node_from_note_and_fill_communities(note: Note, communities: List[str]):
@@ -369,12 +364,12 @@ def apply_label_to_node(node: Node, labels: List[str]) -> None:
     labels_str = ":".join(labels)
     # TODO: /world_graph/test_vault/test_file.md Fails I believe due to #/ tags
     labels_str = cypher_replace(labels_str)
-    # graph_log.debug(f"Applying Labels{labels_str}, to {node_id}")
+    # parse_log.debug(f"Applying Labels{labels_str}, to {node_id}")
     query = f"""MATCH (n)
     WHERE elementId(n) = $node_id
     SET n:{labels_str}"""
     results, meta = db.cypher_query(query, {"node_id": node_id})
-    # graph_log.debug(f"Cypher query {query} {results=}, {meta=}")
+    # parse_log.debug(f"Cypher query {query} {results=}, {meta=}")
 
 
 @db.write_transaction
@@ -384,7 +379,7 @@ def create_dangling(name: str, vault_name: str, all_communities: List[str]) -> N
         "community": all_communities.index(CATEGORY_DANGLING),
         "obsidian_url": escape_cypher(obsidian_url(name, vault_name)),
         "content": "Orphan",
-        PROP_VAULT: vault_name
+        PROP_VAULT: vault_name,
     }
     node = Node(**properties)
     node.save()
@@ -411,17 +406,17 @@ if __name__ == "__main__":
     config.DATABASE_URL = f"bolt://{username}:{password}@localhost:7687"
 
     if CLEAR_ON_CONNECT:
-        graph_log.info(f"Clearing Neo4j Database {VAULT_NAME=}")
+        parse_log.info(f"Clearing Neo4j Database {VAULT_NAME=}")
         cypher = f"MATCH (n) WHERE n.{PROP_VAULT}='{VAULT_NAME}' DETACH DELETE n"
         results, meta = db.cypher_query(cypher)
-        graph_log.debug(f"{results=}, {meta=}")
+        parse_log.debug(f"{results=}, {meta=}")
 
     vault_path = "/home/xoph/SlipBoxCopy/Slip Box"
     # vault_path = "/home/xoph/repos/github/nfroseth/world_graph/test_vault"
     notes = parse_vault(vault_path)
 
     nodes = {}
-    graph_log.info(f"Starting the conversion to nodes")
+    parse_log.info(f"Starting the conversion to nodes")
     all_tags = [CATEGORY_DANGLING, CATEGORY_NO_TAGS]
     all_communities = all_tags if COMMUNITY_TYPE == "tags" else [CATEGORY_DANGLING]
     for name, note in tqdm(notes.items()):
@@ -431,11 +426,11 @@ if __name__ == "__main__":
         all_tags += [tag for tag in node_tags if not tag in all_tags]
         nodes[name] = node
 
-    graph_log.info(f"All Nodes and Tag Labels Created...")
+    parse_log.info(f"All Nodes and Tag Labels Created...")
 
     rels_to_create = []
     nodes_to_create = []
-    graph_log.info("Creating relationships")
+    parse_log.info("Creating relationships")
     for name, note in tqdm(notes.items()):
 
         no_outgoing_links = not note.out_relationships.keys()

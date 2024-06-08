@@ -4,6 +4,7 @@ joblib_memory_cache/
 */Good Faith Schedule.md
 vectors/
 ranker_cache/
+neo4jd3/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

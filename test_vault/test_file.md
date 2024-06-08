@@ -1,6 +1,8 @@
 ---
 aliases: ["So", "Cool"]
-tags: daily_journal
+tags: 
+- daily_journal
+- person/stranger
 
 ---
 202406020928
