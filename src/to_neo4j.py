@@ -5,7 +5,7 @@ import io
 import logging
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Dict, List, Sequence, Tuple
+from typing import Any, Dict, List, Tuple
 
 from joblib import Memory
 from tqdm import tqdm
@@ -62,6 +62,7 @@ PUNCTUATION = {
     "\\",
     os.linesep,
 }
+
 
 def typed_list_parse(file: io.TextIOWrapper, name: str) -> Note:
     line = file.readline()
@@ -151,10 +152,6 @@ class HashtagPreprocessor(Preprocessor):
             else:
                 break
         return text.split("\n")
-
-
-# def makeExtension(*args, **kwargs):
-#     return HashtagExtension(*args, **kwargs)
 
 
 def markdownToHtml(md_text):
@@ -275,6 +272,7 @@ def from_yaml_string_get_hierarchical_tag(yaml_tags: Any) -> List[str]:
                         tags.append(tag)
     return tags
 
+
 # https://help.obsidian.md/Editing+and+formatting/Tags#Tag+format
 # "#/ is a valid tag, but I don't want it"
 def get_tags_from_line(line: str) -> List[str]:
@@ -331,9 +329,11 @@ def get_community(note: Note) -> str:
         community = str(Path(note.properties[PROP_PATH]).parent)
     return community
 
+
 def cypher_replace(input):
     r = input.replace("-", "_")
     return r
+
 
 @db.write_transaction
 def node_from_note_and_fill_communities(note: Note, communities: List[str]):
