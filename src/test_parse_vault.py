@@ -7,4 +7,4 @@ if __name__ == "__main__":
     vault_path = "/home/xoph/repos/github/nfroseth/world_graph/test_vault"
     notes = parse_vault(vault_path)
     
-    print(notes)
+    print(notes["Good Faith Schedule"].tags)

@@ -42,7 +42,7 @@ VAULT_NAME = "TEST_VAULT"
 CATEGORY_DANGLING = "SMD_dangling"
 CATEGORY_NO_TAGS = "SMD_no_tags"
 
-CLEAR_ON_CONNECT = False
+CLEAR_ON_CONNECT = True
 COMMUNITY_TYPE = "tags"  # tags, folders, none
 
 PUNCTUATION = {
@@ -84,7 +84,8 @@ def typed_list_parse(file: io.TextIOWrapper, name: str) -> Note:
 
     content = []
     relations = defaultdict(list)
-    tags = []
+
+    tags = note_properties["tags"] if "tags" in note_properties else []
     while line:
         # TODO: Hand the code for Typed_links with their prefix, though I'm not sure what that is.
         content.append(line)
@@ -214,7 +215,7 @@ def obsidian_url(name: str, vault: str) -> str:
     return "obsidian://open?vault=" + quote(vault) + "&file=" + quote(name) + ".md"
 
 
-# @memory.cache
+@memory.cache
 def parse_vault(
     notes_path: str, note_ext_type: str = ".md", args=None
 ) -> Dict[str, Note]:
@@ -248,7 +249,7 @@ def parse_obsidian_yaml_header(file):
 
     properties = yaml.safe_load("".join(lines))
 
-    for key, value in properties.items():
+    for key, value in dict(properties).items():
         if key == "id":
             properties[f"{OVERLOADED_PREFIX}{key}"] = value
             del properties[key]
@@ -258,10 +259,11 @@ def parse_obsidian_yaml_header(file):
     return properties
 
 
-def from_yaml_string_get_hierarchical_tag(yaml_tags: Any) -> List[str]:
+def from_yaml_string_get_hierarchical_tag(yaml_in: Any) -> List[str]:
+    yaml_tags = yaml_in
     tags = []
     if isinstance(yaml_tags, str):
-        yaml_tags = [single_tag.strip() for single_tag in yaml_tags.split(",")]
+        yaml_tags = [single_tag for single_tag in re.split(", | ", yaml_in)]
     if isinstance(yaml_tags, List) and all([isinstance(tag, str) for tag in yaml_tags]):
         for single_tag in yaml_tags:
             hierarchical_split = single_tag.split("/")
@@ -332,6 +334,7 @@ def get_community(note: Note) -> str:
 
 def cypher_replace(input):
     r = input.replace("-", "_")
+    r = input.replace("/", "_")
     return r
 
 
@@ -339,9 +342,18 @@ def cypher_replace(input):
 def node_from_note_and_fill_communities(note: Note, communities: List[str]):
     tags = [CATEGORY_NO_TAGS]
     escaped_tags = [escape_cypher(tag) for tag in note.tags] if note.has_tags else tags
-    properties = {
-        prop: escape_cypher(str(val)) for prop, val in note.properties.items()
-    }
+    properties = {}
+    for prop, val in note.properties.items():
+        if isinstance(val, str) or isinstance(val, Path):
+            properties[prop] = escape_cypher(str(val))
+        elif isinstance(val, list) and all(
+            [isinstance(prop_it, str) for prop_it in val]
+        ):
+            properties[prop] = [escape_cypher(prop_it) for prop_it in val]
+        else:
+            parse_log.critical(
+                f"During node creation Property Value was neither a str or list of str, on {note.name} skipping {prop}"
+            )
 
     community = get_community(note)
     communities.append(community)
@@ -368,7 +380,12 @@ def apply_label_to_node(node: Node, labels: List[str]) -> None:
     query = f"""MATCH (n)
     WHERE elementId(n) = $node_id
     SET n:{labels_str}"""
-    results, meta = db.cypher_query(query, {"node_id": node_id})
+    try:
+        results, meta = db.cypher_query(query, {"node_id": node_id})
+    except Exception as e:
+        parse_log.critical(
+            f"Failed to apply labels: {labels} on node_id: {node_id} name: {node.name} due to error: {e}"
+        )
     # parse_log.debug(f"Cypher query {query} {results=}, {meta=}")
 
 

@@ -23,12 +23,12 @@ class Note:
         out_relationships={},
         in_relationships={},
     ):
-        self.tags = tags
         self.out_relationships = out_relationships
         self.in_relationships = in_relationships
         self.properties = properties
         self.properties["name"] = name
         self.properties["content"] = content
+        self.properties["tags"] = tags
 
     def add_out_relationship(self, to: str, relationship: Link):
         if to in self.out_relationships:
@@ -49,6 +49,10 @@ class Note:
     @property
     def content(self):
         return self.properties["content"]
+    
+    @property
+    def tags(self):
+        return self.properties["tags"]
 
     @property
     def has_tags(self) -> bool:

@@ -18,7 +18,7 @@ from os import getenv
 
 
 embed_log = logging.getLogger(__name__)
-embed_log.setLevel(logging.INFO)
+embed_log.setLevel(logging.DEBUG)
 embed_log.addHandler(logging.StreamHandler())
 
 
@@ -161,7 +161,7 @@ def main():
     passages_subset = [passages[i] for i in indexes[0]]
 
     # What notes should I seek graph expansion on?
-    filter_k = 5  # Try a Cutoff
+    filter_k = 10  # Try a Cutoff
     re_ranked_notes = wrap_re_rank(query, ranker, passages_subset)
     passage_re_ranked_subset = [
         passages for passages in get_best_passages(re_ranked_notes)[:filter_k]
@@ -193,12 +193,11 @@ def main():
 
     User: {query}"""
     context = "\n".join(
-        [chunk["text"] for chunk in get_best_passages(re_ranked_graph_notes)[:16]]
+        [chunk["text"] for chunk in get_best_passages(re_ranked_graph_notes)[:32]]
     )
 
     prompt = PromptTemplate(template=template, input_variables=["context", "query"])
     llm_chain = LLMChain(prompt=prompt, llm=llm)
-
     llm_result = llm_chain.run(context=context, query=query)
     print(llm_result)
 

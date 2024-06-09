@@ -2,9 +2,11 @@
 source_texts/
 joblib_memory_cache/
 */Good Faith Schedule.md
+test_files/
 vectors/
 ranker_cache/
 neo4jd3/
+**/exclusion/** 
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
