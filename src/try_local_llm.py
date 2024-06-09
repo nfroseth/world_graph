@@ -43,11 +43,14 @@ def get_and_write_llm(llm, template, files, path):
     logging.info(f"Sending Notes to LLM...")
     llm_processed_files = {}
     for path, document in tqdm(files.items()):
-        write_out_path = str(path).replace(base_inpath.name, LLM_DIR).replace(".pdf", ".md")
-        llm_processed_files[write_out_path] = get_llm_response(llm, template, document).content
+        try:
+            write_out_path = str(path).replace(base_inpath.name, LLM_DIR).replace(".pdf", ".md")
+            llm_processed_files[write_out_path] = get_llm_response(llm, template, document).content
 
-        with open(write_out_path, mode="w+", encoding="utf-8") as file:
-            file.write(llm_processed_files[write_out_path])
+            with open(write_out_path, mode="w+", encoding="utf-8") as file:
+                file.write(llm_processed_files[write_out_path])
+        except Exception as e:
+            logging.critical(f"Failed Local LLM Call on file: {path} with {e}")
 
     return llm_processed_files
 
