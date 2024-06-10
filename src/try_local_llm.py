@@ -21,11 +21,6 @@ LLM_DIR = "pdf_note_output/llm_pass_version"
 # IMAGE_PATH = "pdf_note_output/unstructured_extracted_images"
 IMAGE_PATH = "/home/xoph/repos/github/nfroseth/world_graph/test_files/pdf_note_output/unstructured_extracted_images"
 
-
-def note_name(path, extension=".pdf"):
-    return os.path.basename(path)[: -len(extension)]
-
-
 @timing
 def parse_all_pdf_dir(path):
     note_ext_type = ".pdf"
@@ -48,7 +43,6 @@ def parse_all_pdf_dir(path):
 
 @timing
 def read_pdf(path):
-    
     elements = partition_pdf(
         path,
         strategy="hi_res",
@@ -89,7 +83,6 @@ def get_llm_response(chain, context):
 
 def chunk_text(splitter, files):
     after_chunking = {}
-
     for path, file in files.items():
         file = files[path]
         for idx, chunk in enumerate(splitter.split_text(file)):
