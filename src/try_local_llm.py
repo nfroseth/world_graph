@@ -76,13 +76,11 @@ def get_and_write_llm(chain, files, path):
 
             with open(write_out_path, mode="a+", encoding="utf-8") as file:
                 file.write(llm_processed_files[write_out_path])
+                print(f"Wrote file of len {len(llm_processed_files[write_out_path])} to {write_out_path}")
         except Exception as e:
             logging.critical(f"Failed Local LLM Call on file: {path} with {e}")
 
     return llm_processed_files
-
-
-
 
 @timing
 def get_llm_response(chain, context):
@@ -130,9 +128,33 @@ def main():
 
     path = "/home/xoph/repos/github/nfroseth/world_graph/test_files/pdf_note_input"
 
-    files = parse_all_pdf_dir(path)
+    # files = parse_all_pdf_dir(path)
 
-    print(f"PDF files: {len(files)}")
+    after_pdf = "/home/xoph/repos/github/nfroseth/world_graph/test_files/pdf_note_output/unstructured_version"
+    llm_so_far = "/home/xoph/repos/github/nfroseth/world_graph/test_files/pdf_note_output/llm_pass_version"
+
+    notes_to_do = list(Path(after_pdf).rglob("*" + ".txt"))
+    print(f"PDF files: {len(notes_to_do)}")
+
+    notes_to_do = [(path_it.stem, path_it) for path_it in notes_to_do]
+
+    chunks_done = Path(llm_so_far).rglob("*" + ".md")
+
+    files_done = []
+    for full_path_it in chunks_done:
+        path_it = full_path_it.stem
+        index = len(path_it) - path_it[::-1].find('_', path_it[::-1].find('_') + 1) - 1
+        files_done.append(path_it[:index])
+    
+    chunks_to_do = [path for stem, path in notes_to_do if stem not in files_done]
+    print(f"Files remaining: {len(chunks_to_do)}")
+    # print(chunks_to_do)
+
+    files = {}
+    for path_it in chunks_to_do:
+        with open(path_it, mode="r", encoding="utf-8") as file:
+            files[path_it] = file.read()
+
     chunks = chunk_text(text_splitter, files)
     print(f"Chunks files: {len(chunks)}")
 

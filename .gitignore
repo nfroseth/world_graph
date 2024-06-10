@@ -7,6 +7,10 @@ vectors/
 ranker_cache/
 neo4jd3/
 **/exclusion/** 
+langchain_cache/
+milvus/
+embedEtcd.yaml
+scripts/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
