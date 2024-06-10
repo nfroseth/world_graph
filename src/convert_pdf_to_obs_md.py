@@ -20,6 +20,7 @@ def get_llm_chain():
         openai_api_base="http://172.30.128.1:1234/v1",
         model="SanctumAI/Meta-Llama-3-8B-Instruct-GGUF/meta-llama-3-8b-instruct.Q5_1.gguf",
         temperature=0.6,
+        max_tokens=8192,
     )
     # template = """
     # System: You are an expert in generating markdown documents from hand written notes. Format the following text in markdown with consistent headers, lists, and tables. 
