@@ -12,6 +12,9 @@ class Link:
     def __str__(self):
         return self.type + self.properties.__str__()
 
+class Chunk:
+    def __init__(self, content):
+        self.content = content
 
 class Note:
     def __init__(
