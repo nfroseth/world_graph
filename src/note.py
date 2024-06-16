@@ -101,11 +101,11 @@ class Relationship(StructuredRel):
 class Chunk(SemiStructuredNode):
     chunk_index = IntegerProperty(required=True)
     content = StringProperty(required=True)
-    next = RelationshipTo("Chunk", "NEXT")
-    prev = RelationshipTo("Chunk", "PREVIOUS")
+    next = RelationshipTo("Chunk", "NEXT_CHUNK")
+    # prev = RelationshipTo("Chunk", "PREVIOUS")
 
-    out_chunks = RelationshipTo("Chunks", "RELATED_TO", model=Relationship)
-    in_chunks = RelationshipFrom("Chunks", "RELATED_TO", model=Relationship)
+    out_chunks = RelationshipTo("Chunk", "RELATED_TO", model=Relationship)
+    in_chunks = RelationshipFrom("Chunk", "RELATED_TO", model=Relationship)
 
     out_relationships = RelationshipTo("Node", "RELATED_TO", model=Relationship)
     in_relationships = RelationshipFrom("Node", "RELATED_TO", model=Relationship)
@@ -116,10 +116,11 @@ class Node(SemiStructuredNode):
     tags = ArrayProperty(StringProperty())
     content = StringProperty(required=True)
 
-    contains = RelationshipTo("Chunks", "CONTAINS")
+    contains = RelationshipTo("Chunk", "FIRST_CHUNK")
+    contains = RelationshipTo("Chunk", "PART_OF")
 
-    out_chunks = RelationshipTo("Chunks", "RELATED_TO", model=Relationship)
-    in_chunks = RelationshipFrom("Chunks", "RELATED_TO", model=Relationship)
+    out_chunks = RelationshipTo("Chunk", "RELATED_TO", model=Relationship)
+    in_chunks = RelationshipFrom("Chunk", "RELATED_TO", model=Relationship)
 
     out_relationships = RelationshipTo("Node", "RELATED_TO", model=Relationship)
     in_relationships = RelationshipFrom("Node", "RELATED_TO", model=Relationship)
