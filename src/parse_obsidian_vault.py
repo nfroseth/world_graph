@@ -34,7 +34,6 @@ parse_log.addHandler(logging.StreamHandler())
 
 memory = Memory("/home/xoph/repos/github/nfroseth/world_graph/joblib_memory_cache")
 
-ENABLE_MARKDOWN_TO_HTML = False
 
 # INDEX_PROPS = ['name', 'aliases']
 
@@ -146,41 +145,6 @@ def markdownToHtml(md_text):
     )
 
 
-# TODO: Next steps for parsing, is find all extracting all the links from the Obsidian format
-# Seems the smdc package used a regex to find everything, I think I'll follow that.
-# I'll see how we do though, due to misplaced notions of speed and maintainability my
-# gut reaction is to remove all regex from the application. That'll most likely need profiling
-# and throughput testing be I full send the re-write.
-def get_wiki_from_line(line: str, note_title: str) -> List[Tuple[str, str]]:
-    found_links = re.findall("\[\[(.*?)\]\]", line)
-    parsed_links = []
-    for wikilink in found_links:
-        title = parse_wikilink(wikilink, note_title)
-        if title != "":
-            parsed_links.append(title)
-    return parsed_links
-
-
-def parse_wikilink(between_brackets: str, note_title: str) -> Tuple[str, str]:
-    split_name = iter(between_brackets.split("|"))
-    link_title_maybe_header = next(split_name, "")
-
-    link_display_text = next(split_name, link_title_maybe_header)
-    # TODO: How should the display text of the link be used in [[test|name]] Cases?
-    # Are they properties on the link itself?
-
-    if len(link_title_maybe_header) != 0:
-        title = link_title_maybe_header.split("#")[0]
-        # TODO: How should the title(#header) piece be used when creating link
-        # Very large Notes are split up with headers, so they maybe their own nodes
-        # Lastly the ^ operator allows for links to specific blocks of text to
-        # more specific.
-        if len(title) == 0:  # Wikilinks like [[#header]] refer to itself
-            return note_title, link_display_text
-        else:  # Wikilinks like [[title#header]]
-            return title, link_display_text
-    return "", ""
-
 
 # @memory.cache
 
@@ -203,6 +167,7 @@ class ObsidianVault:
         self._OBSIDIAN_URL_PROP_NAME = "obsidian_url"
         self._OBSIDIAN_VAULT_PROP_NAME = "obsidian_vault"
         self._FILE_PATH_PROP_NAME = "file_path"
+        self._ENABLE_MARKDOWN_TO_HTML = False
 
         if make_tmp_copy:
             # TODO: Copy notes to a temp directory to allow for the suggestion of changes
@@ -283,6 +248,43 @@ class ObsidianVault:
         parse_log.info(f"{note_properties=}")
         return note_properties, line
 
+    @staticmethod
+    def get_wiki_from_line(line: str, note_title: str) -> List[Tuple[str, str]]:
+        # TODO: Next steps for parsing, is find all extracting all the links from the Obsidian format
+        # Seems the smdc package used a regex to find everything, I think I'll follow that.
+        # I'll see how we do though, due to misplaced notions of speed and maintainability my
+        # gut reaction is to remove all regex from the application. That'll most likely need profiling
+        # and throughput testing be I full send the re-write.
+        found_links = re.findall("\[\[(.*?)\]\]", line)
+        parsed_links = []
+        for wikilink in found_links:
+            title = ObsidianVault.parse_wikilink(wikilink, note_title)
+            if title != "":
+                parsed_links.append(title)
+        return parsed_links
+
+    @staticmethod
+    def parse_wikilink(between_brackets: str, note_title: str) -> Tuple[str, str]:
+        split_name = iter(between_brackets.split("|"))
+        link_title_maybe_header = next(split_name, "")
+
+        link_display_text = next(split_name, link_title_maybe_header)
+        # TODO: How should the display text of the link be used in [[test|name]] Cases?
+        # Are they properties on the link itself?
+
+        if len(link_title_maybe_header) != 0:
+            title = link_title_maybe_header.split("#")[0]
+            # TODO: How should the title(#header) piece be used when creating link
+            # Very large Notes are split up with headers, so they maybe their own nodes
+            # Lastly the ^ operator allows for links to specific blocks of text to
+            # more specific.
+            if len(title) == 0:  # Wikilinks like [[#header]] refer to itself
+                return note_title, link_display_text
+            else:  # Wikilinks like [[title#header]]
+                return title, link_display_text
+        return "", ""
+
+
     def typed_list_parse(
         self,
         file: io.TextIOWrapper,
@@ -292,7 +294,6 @@ class ObsidianVault:
         note_name = path.stem
         note_properties, line = self.get_note_properties_from_header(file, note_name)
 
-        content = []
         relations = defaultdict(list)
         note_properties[self._OBSIDIAN_URL_PROP_NAME] = ObsidianVault.obsidian_url(
             note_name, self._VAULT_NAME
@@ -302,16 +303,33 @@ class ObsidianVault:
 
         tags = note_properties["tags"] if "tags" in note_properties else []
 
-        while line:
+        lines = []
+        if splitter is not None:
+            raw_content_after_header = file.read()
+            note_properties["chunks"] = splitter.split_text(raw_content_after_header)
+
+            for chunk in note_properties["chunks"]:
+                for line in chunk.page_content.split("\n"):
+                    lines.append((chunk, line))
+        else:
+            chunk = None
+            while line:
+                lines.append((chunk, line))
+                line = file.readline()
+
+        raw_content = "".join([i[1] for i in lines])
+        if self._ENABLE_MARKDOWN_TO_HTML:
+            raw_content = markdownToHtml(raw_content)
+
+        for chunk, line in lines:
             # TODO: Hand the code for Typed_links with their prefix, though I'm not sure what that is.
-            content.append(line)
             for tag in get_tags_from_line(line):
                 if tag not in tags:
                     tags.append(tag)
 
             # TODO: Save aliases as Relation property. N: Not sure what this means, need
             # to learn more about Graphs and what specific a relational property is
-            line_wikilinks = get_wiki_from_line(line, note_name)
+            line_wikilinks = ObsidianVault.get_wiki_from_line(line, note_name)
 
             for wikilink, link_display_text in line_wikilinks:
                 parse_log.debug(
@@ -323,19 +341,11 @@ class ObsidianVault:
                     "parsed_context": "",
                     "link_display_text": link_display_text,
                 }
-                if ENABLE_MARKDOWN_TO_HTML:
+                if self._ENABLE_MARKDOWN_TO_HTML:
                     properties["parsed_context"] = markdownToHtml(line)
 
                 rel = Link("inline", properties)
                 relations[wikilink].append(rel)
-            line = file.readline()
-
-        raw_content = "".join(content)
-        if ENABLE_MARKDOWN_TO_HTML:
-            raw_content = markdownToHtml(raw_content)
-
-        if splitter is not None:
-            note_properties["chunks"] = splitter.split_text(raw_content)
 
         return Note(
             note_name,
