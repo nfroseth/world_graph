@@ -1,20 +1,26 @@
 import logging
 from typing import List
-from neomodel import StructuredRel, StringProperty, StringProperty, ArrayProperty, RelationshipTo, RelationshipFrom, UniqueIdProperty
+from neomodel import (
+    StructuredRel,
+    StringProperty,
+    StringProperty,
+    ArrayProperty,
+    RelationshipTo,
+    RelationshipFrom,
+    UniqueIdProperty,
+)
 from neomodel.contrib import SemiStructuredNode
 
 
 class Link:
-    def __init__(self, type: str, properties={}):
+    def __init__(self, type: str, context:str, properties={}):
         self.type = type
+        self.context = context
         self.properties = properties
 
     def __str__(self):
         return self.type + self.properties.__str__()
 
-class Chunk:
-    def __init__(self, content):
-        self.content = content
 
 class Note:
     def __init__(
@@ -52,7 +58,7 @@ class Note:
     @property
     def content(self):
         return self.properties["content"]
-    
+
     @property
     def tags(self):
         return self.properties["tags"]
@@ -82,16 +88,18 @@ class Note:
                 logging.warning("Failed to print some properties.")
         return out_string
 
+
 class Relationship(StructuredRel):
     relationship_type = StringProperty(default="inline")
     context = StringProperty(required=True)
     parsed_context = StringProperty()
     link_display_text = StringProperty()
 
+
 class Node(SemiStructuredNode):
     uid = UniqueIdProperty()
     name = StringProperty(required=True)
     tags = ArrayProperty(StringProperty())
     content = StringProperty(required=True)
-    out_relationships = RelationshipTo('Node', 'RELATED_TO', model=Relationship)
-    in_relationships = RelationshipFrom('Node', 'RELATED_TO', model=Relationship)
+    out_relationships = RelationshipTo("Node", "RELATED_TO", model=Relationship)
+    in_relationships = RelationshipFrom("Node", "RELATED_TO", model=Relationship)
