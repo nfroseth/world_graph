@@ -5,7 +5,7 @@ import io
 import logging
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from joblib import Memory
 from tqdm import tqdm
@@ -19,6 +19,14 @@ import markdown
 from markdown.extensions import Extension
 from markdown.preprocessors import Preprocessor
 
+from langchain_text_splitters import (
+    MarkdownHeaderTextSplitter,
+    RecursiveCharacterTextSplitter,
+    TokenTextSplitter,
+    TextSplitter,
+)
+from langchain_core.documents import Document
+
 
 parse_log = logging.getLogger(__name__)
 parse_log.setLevel(logging.INFO)
@@ -28,15 +36,7 @@ memory = Memory("/home/xoph/repos/github/nfroseth/world_graph/joblib_memory_cach
 
 ENABLE_MARKDOWN_TO_HTML = False
 
-PROP_OBSIDIAN_URL = "obsidian_url"
 # INDEX_PROPS = ['name', 'aliases']
-PROP_VAULT = "SMD_vault"  # TODO: What do these mean or do?
-PROP_PATH = (
-    "SMD_path"  # TODO: What do these mean or do? Looking at the parsing and graph code
-)
-
-VAULT_NAME = "TEST_VAULT"
-
 
 
 PUNCTUATION = {
@@ -56,51 +56,6 @@ PUNCTUATION = {
     "\\",
     os.linesep,
 }
-
-
-def obsidian_url(name: str, vault: str) -> str:
-    return "obsidian://open?vault=" + quote(vault) + "&file=" + quote(name) + ".md"
-
-
-def note_name(path, extension=".md"):
-    return os.path.basename(path)[: -len(extension)]
-
-
-def from_yaml_string_get_hierarchical_tag(yaml_in: Any) -> List[str]:
-    yaml_tags = yaml_in
-    tags = []
-    if isinstance(yaml_tags, str):
-        yaml_tags = [single_tag for single_tag in re.split(", | ", yaml_in)]
-    if isinstance(yaml_tags, List) and all([isinstance(tag, str) for tag in yaml_tags]):
-        for single_tag in yaml_tags:
-            hierarchical_split = single_tag.split("/")
-            for i, j in itertools.combinations(range(len(hierarchical_split) + 1), 2):
-                if i == 0:
-                    tag = "/".join(hierarchical_split[i:j])
-                    if tag not in tags:
-                        tags.append(tag)
-    return tags
-
-
-def parse_obsidian_yaml_header(file):
-    OVERLOADED_PREFIX = "obsidian_note_property_"
-
-    lines = []
-    line = file.readline()
-    while line != "---" + os.linesep and line:
-        lines.append(line)
-        line = file.readline()
-
-    properties = yaml.safe_load("".join(lines))
-
-    for key, value in dict(properties).items():
-        if key == "id":
-            properties[f"{OVERLOADED_PREFIX}{key}"] = value
-            del properties[key]
-        elif key == "tags":
-            properties[key] = from_yaml_string_get_hierarchical_tag(value)
-
-    return properties
 
 
 # https://help.obsidian.md/Editing+and+formatting/Tags#Tag+format
@@ -139,6 +94,7 @@ def get_tags_from_line(line: str) -> List[str]:
             tags.append(candidate_tag[1:])
 
     return tags
+
 
 # TODO: Review the following hashtag Parsing Code to understand it
 class HashtagExtension(Extension):
@@ -204,6 +160,7 @@ def get_wiki_from_line(line: str, note_title: str) -> List[Tuple[str, str]]:
             parsed_links.append(title)
     return parsed_links
 
+
 def parse_wikilink(between_brackets: str, note_title: str) -> Tuple[str, str]:
     split_name = iter(between_brackets.split("|"))
     link_title_maybe_header = next(split_name, "")
@@ -225,89 +182,219 @@ def parse_wikilink(between_brackets: str, note_title: str) -> Tuple[str, str]:
     return "", ""
 
 
-def typed_list_parse(file: io.TextIOWrapper, name: str) -> Note:
-    line = file.readline()
-    note_properties = {}
-    while line.strip() != "":
-        if line == "---" + os.linesep:
-            try:
-                note_properties = parse_obsidian_yaml_header(file)
-            except Exception as e:
-                parse_log.critical(
-                    f"Detected but Failed to read the properties yaml head from note: {name} with {e}"
-                )
-            else:
-                break
-        line = file.readline()
-
-    # print(f"{line=}")
-    parse_log.info(f"{note_properties=}")
-
-    content = []
-    relations = defaultdict(list)
-
-    tags = note_properties["tags"] if "tags" in note_properties else []
-    while line:
-        # TODO: Hand the code for Typed_links with their prefix, though I'm not sure what that is.
-        content.append(line)
-        for tag in get_tags_from_line(line):
-            if tag not in tags:
-                tags.append(tag)
-
-        # TODO: Save aliases as Relation property. N: Not sure what this means, need
-        # to learn more about Graphs and what specific a relational property is
-        line_wikilinks = get_wiki_from_line(line, name)
-        for wikilink, link_display_text in line_wikilinks:
-            parse_log.debug(
-                f"From {name} found link: {wikilink} named: {link_display_text}"
-            )
-            properties = {
-                "context": line,
-                "parsed_context": "",
-                "link_display_text": link_display_text,
-            }
-            if ENABLE_MARKDOWN_TO_HTML:
-                properties["parsed_context"] = markdownToHtml(line)
-
-            rel = Link("inline", properties)
-            relations[wikilink].append(rel)
-        line = file.readline()
-
-    raw_content = "".join(content)
-    if ENABLE_MARKDOWN_TO_HTML:
-        raw_content = markdownToHtml(raw_content)
-
-    return Note(
-        name, tags, raw_content, out_relationships=relations, properties=note_properties
-    )
-
-
 # @memory.cache
-def parse_obsidian_vault(
-    notes_path: str, note_ext_type: str = ".md", args=None
-) -> Dict[str, Note]:
 
-    note_tree = Path(notes_path).rglob("*" + note_ext_type)
 
-    parsed_notes = {}
-    parse_log.info(f"Parsing Notes")
+class ObsidianVault:
+    def __init__(
+        self,
+        vault_path: str,
+        vault_name: str,
+        note_ext_type: str = ".md",
+        make_tmp_copy: bool = False,
+    ):
+        self._vault_path = vault_path
+        self._note_ext_type = note_ext_type
 
-    for path in tqdm(note_tree):
-        name = note_name(path)
-        parse_log.debug(f"Reading note {name=}")
-        with open(path, mode="r", encoding="utf-8") as file:
-            note = typed_list_parse(file, name)
-            note.properties[PROP_OBSIDIAN_URL] = obsidian_url(name, VAULT_NAME)
-            note.properties[PROP_PATH] = path
-            note.properties[PROP_VAULT] = VAULT_NAME
-            parsed_notes[name] = note
+        self._parsed_notes = {}
 
-    parse_log.info("Finished parsing notes")
-    return parsed_notes
+        self._VAULT_NAME = vault_name
+        self._OBSIDIAN_OVERLOADED_PREFIX = "obsidian_note_property_"
+        self._OBSIDIAN_URL_PROP_NAME = "obsidian_url"
+        self._OBSIDIAN_VAULT_PROP_NAME = "obsidian_vault"
+        self._FILE_PATH_PROP_NAME = "file_path"
+
+        if make_tmp_copy:
+            # TODO: Copy notes to a temp directory to allow for the suggestion of changes
+            raise NotImplementedError(
+                "Copy notes to a temp directory to allow for the suggestion of changes"
+            )
+
+    @property
+    def parsed_notes(self) -> Dict[str, Note]:
+        if len(self._parsed_notes) == 0:
+            raise Exception("No notes have been parsed.")
+        else:
+            return self._parsed_notes
+
+    @staticmethod
+    def obsidian_url(name: str, vault: str, note_ext_type: str = ".md") -> str:
+        return f"obsidian://open?vault={quote(vault)}&file={quote(name)}{note_ext_type}"
+
+    @staticmethod
+    def from_yaml_string_get_hierarchical_tag(yaml_in: Any) -> List[str]:
+        yaml_tags = yaml_in
+        tags = []
+        if isinstance(yaml_tags, str):
+            yaml_tags = [single_tag for single_tag in re.split(", | ", yaml_in)]
+        if isinstance(yaml_tags, List) and all(
+            [isinstance(tag, str) for tag in yaml_tags]
+        ):
+            for single_tag in yaml_tags:
+                hierarchical_split = single_tag.split("/")
+                for i, j in itertools.combinations(
+                    range(len(hierarchical_split) + 1), 2
+                ):
+                    if i == 0:
+                        tag = "/".join(hierarchical_split[i:j])
+                        if tag not in tags:
+                            tags.append(tag)
+        return tags
+
+    def parse_obsidian_yaml_header(self, file: io.TextIOWrapper):
+        lines = []
+        line = file.readline()
+        while line != "---" + os.linesep and line:
+            lines.append(line)
+            line = file.readline()
+
+        properties = yaml.safe_load("".join(lines))
+
+        for key, value in dict(properties).items():
+            if (
+                key == "id"
+            ):  # ID Overloaded in Down Stream Neo4j, TODO: Move the ownership of conversion to Neo4j specific code
+                properties[f"{self._OBSIDIAN_OVERLOADED_PREFIX}{key}"] = value
+                del properties[key]
+            elif key == "tags":
+                properties[key] = ObsidianVault.from_yaml_string_get_hierarchical_tag(
+                    value
+                )
+
+        return properties
+
+    def get_note_properties_from_header(
+        self, file: io.TextIOWrapper, name
+    ) -> Tuple[Dict[str, Any], str]:
+        note_properties = {}
+        line = file.readline()
+        while line.strip() != "":
+            if line == "---" + os.linesep:
+                try:
+                    note_properties = self.parse_obsidian_yaml_header(file)
+                except Exception as e:
+                    parse_log.critical(
+                        f"Detected but Failed to read the properties yaml head from note: {name} with {e}"
+                    )
+                else:
+                    break
+            line = file.readline()
+
+        parse_log.info(f"{note_properties=}")
+        return note_properties, line
+
+    def typed_list_parse(
+        self,
+        file: io.TextIOWrapper,
+        path: Path,
+        splitter: Optional[TextSplitter] = None,
+    ) -> Note:
+        note_name = path.stem
+        note_properties, line = self.get_note_properties_from_header(file, note_name)
+
+        content = []
+        relations = defaultdict(list)
+        note_properties[self._OBSIDIAN_URL_PROP_NAME] = ObsidianVault.obsidian_url(
+            note_name, self._VAULT_NAME
+        )
+        note_properties[self._FILE_PATH_PROP_NAME] = path
+        note_properties[self._OBSIDIAN_VAULT_PROP_NAME] = self._VAULT_NAME
+
+        tags = note_properties["tags"] if "tags" in note_properties else []
+
+        while line:
+            # TODO: Hand the code for Typed_links with their prefix, though I'm not sure what that is.
+            content.append(line)
+            for tag in get_tags_from_line(line):
+                if tag not in tags:
+                    tags.append(tag)
+
+            # TODO: Save aliases as Relation property. N: Not sure what this means, need
+            # to learn more about Graphs and what specific a relational property is
+            line_wikilinks = get_wiki_from_line(line, note_name)
+
+            for wikilink, link_display_text in line_wikilinks:
+                parse_log.debug(
+                    f"From {note_name} found link: {wikilink} named: {link_display_text}"
+                )
+
+                properties = {
+                    "context": line,
+                    "parsed_context": "",
+                    "link_display_text": link_display_text,
+                }
+                if ENABLE_MARKDOWN_TO_HTML:
+                    properties["parsed_context"] = markdownToHtml(line)
+
+                rel = Link("inline", properties)
+                relations[wikilink].append(rel)
+            line = file.readline()
+
+        raw_content = "".join(content)
+        if ENABLE_MARKDOWN_TO_HTML:
+            raw_content = markdownToHtml(raw_content)
+
+        if splitter is not None:
+            note_properties["chunks"] = splitter.split_text(raw_content)
+
+        return Note(
+            note_name,
+            tags,
+            raw_content,
+            out_relationships=relations,
+            properties=note_properties,
+        )
+
+    def parse_obsidian_vault(self, splitter: Optional[TextSplitter] = None) -> None:
+        parse_log.info(f"Starting the parsing of obsidian vault")
+
+        note_tree = Path(self._vault_path).rglob("*" + self._note_ext_type)
+        parsed_notes = {}
+
+        for path in tqdm(note_tree):
+            name = path.stem
+            parse_log.debug(f"Reading note {name=}")
+
+            with open(path, mode="r", encoding="utf-8") as file:
+                note = self.typed_list_parse(file, path, splitter)
+                parsed_notes[name] = note
+
+        parse_log.info("Finished parsing notes")
+        self._parsed_notes = parsed_notes
+
+
+class MarkdownThenRecursiveSplit:
+    def __init__(
+        self, headers_to_split_on=None, chunk_size=250, chunk_overlap=30
+    ) -> None:
+        headers_to_split_on = (
+            [
+                ("#", "Header 1"),
+                ("##", "Header 2"),
+            ]
+            if not headers_to_split_on
+            else headers_to_split_on
+        )
+
+        # MD splits
+        self.markdown_splitter = MarkdownHeaderTextSplitter(
+            headers_to_split_on=headers_to_split_on, strip_headers=False
+        )
+        self.char_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=chunk_size, chunk_overlap=chunk_overlap
+        )
+
+    def split_text(self, markdown_document: str) -> List[Document]:
+        md_header_splits = self.markdown_splitter.split_text(markdown_document)
+        return self.char_splitter.split_documents(md_header_splits)
 
 
 if __name__ == "__main__":
     print("Quacks like a duck, looks like a goose.")
     # vault_path = "/home/xoph/SlipBoxCopy/Slip Box"
     vault_path = "/home/xoph/repos/github/nfroseth/world_graph/test_vault"
-    notes = parse_obsidian_vault(vault_path)
+    splitter = MarkdownThenRecursiveSplit()
+
+    vault = ObsidianVault(vault_path=vault_path, vault_name="TEST_VAULT")
+    vault.parse_obsidian_vault(splitter=splitter)
+    parsed_notes = vault.parsed_notes

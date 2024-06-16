@@ -10,7 +10,7 @@ from tqdm import tqdm
 
 from neomodel import config, db
 from note import Link, Note, Relationship, Node
-from parse_obsidian_vault import parse_obsidian_vault, obsidian_url
+from parse_obsidian_vault import parse_obsidian_vault, obsidian_url, ObsidianVault
 
 
 parse_log = logging.getLogger(__name__)
@@ -115,7 +115,7 @@ def create_dangling(name: str, vault_name: str, all_communities: List[str]) -> N
     properties = {
         "name": escape_cypher(name),
         "community": all_communities.index(CATEGORY_DANGLING),
-        "obsidian_url": escape_cypher(obsidian_url(name, vault_name)),
+        "obsidian_url": escape_cypher(ObsidianVault.obsidian_url(name, vault_name)),
         "content": "Orphan",
         PROP_VAULT: vault_name,
     }
