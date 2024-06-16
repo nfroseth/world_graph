@@ -3,7 +3,8 @@ from typing import List
 from neomodel import (
     StructuredRel,
     StringProperty,
-    StringProperty,
+    JSONProperty,
+    IntegerProperty,
     ArrayProperty,
     RelationshipTo,
     RelationshipFrom,
@@ -92,14 +93,33 @@ class Note:
 class Relationship(StructuredRel):
     relationship_type = StringProperty(default="inline")
     context = StringProperty(required=True)
-    parsed_context = StringProperty()
-    link_display_text = StringProperty()
+    header = StringProperty(required=True)
+    chunk_index = IntegerProperty(required=True)
+    parsed_context = StringProperty(required=True)
+    link_display_text = StringProperty(required=True)
 
+class Chunk(SemiStructuredNode):
+    chunk_index = IntegerProperty(required=True)
+    content = StringProperty(required=True)
+    next = RelationshipTo("Chunk", "NEXT")
+    prev = RelationshipTo("Chunk", "PREVIOUS")
+
+    out_chunks = RelationshipTo("Chunks", "RELATED_TO", model=Relationship)
+    in_chunks = RelationshipFrom("Chunks", "RELATED_TO", model=Relationship)
+
+    out_relationships = RelationshipTo("Node", "RELATED_TO", model=Relationship)
+    in_relationships = RelationshipFrom("Node", "RELATED_TO", model=Relationship)
 
 class Node(SemiStructuredNode):
     uid = UniqueIdProperty()
     name = StringProperty(required=True)
     tags = ArrayProperty(StringProperty())
     content = StringProperty(required=True)
+
+    contains = RelationshipTo("Chunks", "CONTAINS")
+
+    out_chunks = RelationshipTo("Chunks", "RELATED_TO", model=Relationship)
+    in_chunks = RelationshipFrom("Chunks", "RELATED_TO", model=Relationship)
+
     out_relationships = RelationshipTo("Node", "RELATED_TO", model=Relationship)
     in_relationships = RelationshipFrom("Node", "RELATED_TO", model=Relationship)
