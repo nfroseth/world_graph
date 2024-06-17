@@ -390,17 +390,17 @@ class ObsidianVault:
 
 class MarkdownThenRecursiveSplit:
     def __init__(
-        self, headers_to_split_on=None, chunk_size=250, chunk_overlap=30
+        self, headers_to_split_on=None, chunk_size=1024, chunk_overlap=64
     ) -> None:
         # Split an all levels of valid markdown headers
         headers_to_split_on = (
             [
                 ("#", "Header 1"),
                 ("##", "Header 2"),
-                ("###", "Header 3"),
-                ("####", "Header 4"),
-                ("#####", "Header 5"),
-                ("######", "Header 6"),
+                # ("###", "Header 3"),
+                # ("####", "Header 4"),
+                # ("#####", "Header 5"),
+                # ("######", "Header 6"),
             ]
             if not headers_to_split_on
             else headers_to_split_on

@@ -75,6 +75,7 @@ def node_from_note_and_fill_communities(note: Note, communities: List[str]):
         ):
             properties[prop] = [escape_cypher(prop_it) for prop_it in val]
         elif isinstance(val, list) and all([isinstance(prop_it, Document) for prop_it in val]):
+            # TODO: Replace the Enumeration with the Metadata Extraction of the Source header
             for idx, doc in enumerate(val):
                 try:
                     chunk_properties = {}
@@ -112,6 +113,7 @@ def node_from_note_and_fill_communities(note: Note, communities: List[str]):
         if prev_chunk is not None:
             next_rel = prev_chunk.next.connect(chunk)
             # next_rel.save()
+        prev_chunk = chunk
 
     return node, escaped_tags, community
 
@@ -169,7 +171,9 @@ if __name__ == "__main__":
 
     if CLEAR_ON_CONNECT:
         parse_log.info(f"Clearing Neo4j Database {VAULT_NAME=}")
-        cypher = f"MATCH (n) WHERE n.{PROP_VAULT}='{VAULT_NAME}' DETACH DELETE n"
+        # TODO: Set Prop Vault on Chunks
+        # cypher = f"MATCH (n) WHERE n.{PROP_VAULT}='{VAULT_NAME}' DETACH DELETE n"
+        cypher = f"MATCH (n) DETACH DELETE n"
         results, meta = db.cypher_query(cypher)
         parse_log.debug(f"{results=}, {meta=}")
 
