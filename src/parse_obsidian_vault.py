@@ -260,6 +260,7 @@ class ObsidianVault:
 
             properties = {
                 "title": title,
+                "context": line,
                 "header": header,
                 "chunk_index": chunk_idx,
                 "parsed_context": "",
@@ -269,7 +270,7 @@ class ObsidianVault:
             if self._ENABLE_MARKDOWN_TO_HTML:
                 properties["parsed_context"] = markdownToHtml(line)
 
-            rel = Link("inline", line, properties)
+            rel = Link("inline", properties)
             parsed_links.append((wikilink, rel))
         return parsed_links
 
@@ -335,10 +336,11 @@ class ObsidianVault:
         chunks = []
         if splitter is not None:
             raw_content_after_header = file.read()
-            note_properties["chunks"] = splitter.split_text(raw_content_after_header)
-            chunks = note_properties["chunks"]
+            chunks = splitter.split_text(raw_content_after_header)
         else:
-            chunks = Document(page_content=file.read())
+            chunks = [Document(page_content=file.read())]
+
+        note_properties["chunks"] = chunks
 
         lines = []
         for chunk_idx, chunk in enumerate(chunks):

@@ -1,5 +1,5 @@
 import logging
-from typing import List
+from typing import Dict, List
 from neomodel import (
     StructuredRel,
     StringProperty,
@@ -11,12 +11,12 @@ from neomodel import (
     UniqueIdProperty,
 )
 from neomodel.contrib import SemiStructuredNode
+from langchain_core.documents import Document
 
 
 class Link:
-    def __init__(self, type: str, context:str, properties={}):
+    def __init__(self, type: str, properties={}):
         self.type = type
-        self.context = context
         self.properties = properties
 
     def __str__(self):
@@ -29,6 +29,7 @@ class Note:
         name: str,
         tags: List[str],
         content: str,
+        # chunks: List[Document],
         properties={},
         out_relationships={},
         in_relationships={},
@@ -70,6 +71,10 @@ class Note:
             [isinstance(tag, str) for tag in self.tags]
         ), "Tags are not a list or a tag is not a string"
         return len(self.tags) > 0
+    
+    def to_properties_from_node() -> Dict:
+        pass
+
 
     def __str__(self):
         props = [
@@ -92,15 +97,17 @@ class Note:
 
 class Relationship(StructuredRel):
     relationship_type = StringProperty(default="inline")
+    title = StringProperty()
     context = StringProperty(required=True)
-    header = StringProperty(required=True)
+    header = StringProperty()
     chunk_index = IntegerProperty(required=True)
-    parsed_context = StringProperty(required=True)
-    link_display_text = StringProperty(required=True)
+    parsed_context = StringProperty()
+    link_display_text = StringProperty()
 
 class Chunk(SemiStructuredNode):
     chunk_index = IntegerProperty(required=True)
     content = StringProperty(required=True)
+    metadata = JSONProperty(required=True)
     next = RelationshipTo("Chunk", "NEXT_CHUNK")
     # prev = RelationshipTo("Chunk", "PREVIOUS")
 
@@ -116,7 +123,7 @@ class Node(SemiStructuredNode):
     tags = ArrayProperty(StringProperty())
     content = StringProperty(required=True)
 
-    contains = RelationshipTo("Chunk", "FIRST_CHUNK")
+    head = RelationshipTo("Chunk", "FIRST_CHUNK")
     contains = RelationshipTo("Chunk", "PART_OF")
 
     out_chunks = RelationshipTo("Chunk", "RELATED_TO", model=Relationship)

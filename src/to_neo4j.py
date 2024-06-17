@@ -1,3 +1,4 @@
+import json
 import re
 import os
 import logging
@@ -9,8 +10,9 @@ from tqdm import tqdm
 
 
 from neomodel import config, db
-from note import Link, Note, Relationship, Node
-from parse_obsidian_vault import parse_obsidian_vault, obsidian_url, ObsidianVault
+from note import Link, Note, Relationship, Node, Chunk
+from parse_obsidian_vault import ObsidianVault, MarkdownThenRecursiveSplit
+from langchain_core.documents import Document
 
 
 parse_log = logging.getLogger(__name__)
@@ -34,15 +36,6 @@ VAULT_NAME = "TEST_VAULT"
 
 CLEAR_ON_CONNECT = True
 
-def escape_cypher(string):
-    # r = escape_quotes(string)
-    # Note: CYPHER doesn't allow putting semicolons in text, for some reason. This is lossy!
-    # r = r.replace(";", ",")
-    r = string.replace("\\u", "\\\\u")
-    if r and r[-1] == "\\":
-        r += " "
-    return r
-
 
 def get_community(note: Note) -> str:
     if COMMUNITY_TYPE == "tags":
@@ -55,7 +48,16 @@ def get_community(note: Note) -> str:
 
 def cypher_replace(input):
     r = input.replace("-", "_")
-    r = input.replace("/", "_")
+    r = r.replace("/", "_")
+    return r
+
+def escape_cypher(string):
+    # r = escape_quotes(string)
+    # Note: CYPHER doesn't allow putting semicolons in text, for some reason. This is lossy!
+    # r = r.replace(";", ",")
+    r = string.replace("\\u", "\\\\u")
+    if r and r[-1] == "\\":
+        r += " "
     return r
 
 
@@ -64,6 +66,7 @@ def node_from_note_and_fill_communities(note: Note, communities: List[str]):
     tags = [CATEGORY_NO_TAGS]
     escaped_tags = [escape_cypher(tag) for tag in note.tags] if note.has_tags else tags
     properties = {}
+    chunk_nodes = []
     for prop, val in note.properties.items():
         if isinstance(val, str) or isinstance(val, Path):
             properties[prop] = escape_cypher(str(val))
@@ -71,26 +74,49 @@ def node_from_note_and_fill_communities(note: Note, communities: List[str]):
             [isinstance(prop_it, str) for prop_it in val]
         ):
             properties[prop] = [escape_cypher(prop_it) for prop_it in val]
+        elif isinstance(val, list) and all([isinstance(prop_it, Document) for prop_it in val]):
+            for idx, doc in enumerate(val):
+                try:
+                    chunk_properties = {}
+                    chunk_properties["chunk_index"] = idx
+                    chunk_properties["content"] = doc.page_content
+                    chunk_properties["metadata"] = json.dumps(doc.metadata)
+                    #TODO: Read or load chunk embeddings
+
+                    chunk = Chunk(**chunk_properties)
+                    chunk.save()
+                    chunk_nodes.append(chunk)
+                except Exception as e:
+                    parse_log.critical(f"Failed During the creation of Chunk {idx} on {note.name} with {e}")
         else:
             parse_log.critical(
-                f"During node creation Property Value was neither a str or list of str, on {note.name} skipping {prop}"
+                f"During node creation Property Value was neither a str or list of str, nor list of Docs on {note.name} skipping {prop}"
             )
 
     community = get_community(note)
     communities.append(community)
     properties[PROP_COMMUNITY] = community.index(community)
 
-    # TODO: Removed labels from the Node object, I'm not sure Neomodel can support multi label Nodes such as with tags
-    # So I was going to try to use "raw Cypher to run the commands. "
-    # Example: https://stackoverflow.com/a/21625285
-    # match (n {id:desired-id})
-    # set n :newLabel
-    # return n
     node = Node(**properties)
     node.save()
+
+    prev_chunk = None
+    for chunk in chunk_nodes:
+        if chunk.chunk_index == 0:
+            first_rel = node.head.connect(chunk)
+            # first_rel.save()
+
+        contains_rel = node.contains.connect(chunk)
+        # contains_rel.save()
+
+        if prev_chunk is not None:
+            next_rel = prev_chunk.next.connect(chunk)
+            # next_rel.save()
+
     return node, escaped_tags, community
 
 
+# From: https://stackoverflow.com/a/21625285
 @db.write_transaction
 def apply_label_to_node(node: Node, labels: List[str]) -> None:
     node_id = node.element_id
@@ -149,7 +175,12 @@ if __name__ == "__main__":
 
     vault_path = "/home/xoph/SlipBoxCopy/Slip Box"
     # vault_path = "/home/xoph/repos/github/nfroseth/world_graph/test_vault"
-    notes = parse_obsidian_vault(vault_path)
+    
+    splitter = MarkdownThenRecursiveSplit()
+
+    vault = ObsidianVault(vault_path=vault_path, vault_name="TEST_VAULT")
+    vault.parse_obsidian_vault(splitter=splitter)
+    notes = vault.parsed_notes
 
     nodes = {}
     parse_log.info(f"Starting the conversion to nodes")

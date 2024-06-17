@@ -18,7 +18,7 @@ from langchain_text_splitters import (
     TextSplitter,
 )
 
-from to_neo4j import parse_vault
+from to_neo4j import ObsidianVault
 from note import Note
 
 timing_log = logging.getLogger(__name__)
