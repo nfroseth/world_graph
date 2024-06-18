@@ -244,7 +244,7 @@ class ObsidianVault:
                     break
             line = file.readline()
 
-        parse_log.info(f"{note_properties=}")
+        parse_log.debug(f"{note_properties=}")
         return note_properties, line
 
     def get_wiki_from_line(self, line: str, note_title: str, chunk_idx: int) -> List[Tuple[str, Link]]:
@@ -337,6 +337,7 @@ class ObsidianVault:
         if splitter is not None:
             raw_content_after_header = file.read()
             chunks = splitter.split_text(raw_content_after_header)
+            # chunks = splitter.create_documents([raw_content_after_header])
         else:
             chunks = [Document(page_content=file.read())]
 
@@ -390,14 +391,14 @@ class ObsidianVault:
 
 class MarkdownThenRecursiveSplit:
     def __init__(
-        self, headers_to_split_on=None, chunk_size=1024, chunk_overlap=64
+        self, headers_to_split_on=None, chunk_size=488, chunk_overlap=12
     ) -> None:
         # Split an all levels of valid markdown headers
         headers_to_split_on = (
             [
                 ("#", "Header 1"),
                 ("##", "Header 2"),
-                # ("###", "Header 3"),
+                ("###", "Header 3"),
                 # ("####", "Header 4"),
                 # ("#####", "Header 5"),
                 # ("######", "Header 6"),
@@ -410,7 +411,7 @@ class MarkdownThenRecursiveSplit:
         self.markdown_splitter = MarkdownHeaderTextSplitter(
             headers_to_split_on=headers_to_split_on, strip_headers=False
         )
-        self.char_splitter = RecursiveCharacterTextSplitter(
+        self.char_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
             chunk_size=chunk_size, chunk_overlap=chunk_overlap
         )
 
