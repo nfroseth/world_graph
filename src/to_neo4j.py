@@ -33,7 +33,10 @@ def get_community(note: Note) -> str:
 
 
 def cypher_replace(input):
-    r = input.replace("-", "_")
+    r = input
+    r = r.replace(">", "_")
+    r = r.replace("<", "_")
+    r = r.replace("-", "_")
     r = r.replace("/", "_")
     return r
 
@@ -185,6 +188,7 @@ if __name__ == "__main__":
     url, username, password = setup_neo4j_connection(clear_on_connect=True)
 
     vault_path = "/home/xoph/SlipBoxCopy/Slip Box"
+    vault_path = "/home/xoph/SlipBoxCopy/LorenzDuremdes/Second-Brain"
     # vault_path = "/home/xoph/SlipBoxCopy/Master_Daily-20240623T031310Z-001"
     # vault_path = "/home/xoph/repos/github/nfroseth/world_graph/test_vault"
 
