@@ -1,4 +1,5 @@
 import itertools
+import json
 import re
 import os
 import io
@@ -13,7 +14,7 @@ from tqdm import tqdm
 import yaml
 from urllib.parse import quote
 
-from note import Link, Note
+from note import Chunk, Link, Note, Note_Chunk
 
 import markdown
 from markdown.extensions import Extension
@@ -26,7 +27,8 @@ from langchain_text_splitters import (
     TextSplitter,
 )
 from langchain_core.documents import Document
-
+from langchain_core.embeddings.embeddings import Embeddings
+from langchain_community.embeddings import InfinityEmbeddings
 
 parse_log = logging.getLogger(__name__)
 parse_log.setLevel(logging.INFO)
@@ -55,6 +57,23 @@ PUNCTUATION = {
     "\\",
     os.linesep,
 }
+
+EMBEDDING_ENABLED = False
+INFINITY_API_URL = "http://127.0.0.1:7997"
+
+
+# @timing
+def wrap_embedding(embeddings: Embeddings, text):
+    return embeddings.embed_query(text)
+
+
+def load_embedding_model(model_name: Optional[str] = None) -> Tuple[Embeddings, int]:
+    embeddings = InfinityEmbeddings(
+        model="BAAI/bge-small-en-v1.5", infinity_api_url=INFINITY_API_URL
+    )
+    dimension = 384  # TODO: Embed Example and get length
+
+    return embeddings, dimension
 
 
 # https://help.obsidian.md/Editing+and+formatting/Tags#Tag+format
@@ -247,7 +266,9 @@ class ObsidianVault:
         parse_log.debug(f"{note_properties=}")
         return note_properties, line
 
-    def get_wiki_from_line(self, line: str, note_title: str, chunk_idx: int) -> List[Tuple[str, Link]]:
+    def get_wiki_from_line(
+        self, line: str, note_title: str, chunk_idx: int
+    ) -> List[Tuple[str, Link]]:
         found_links = re.findall("\[\[(.*?)\]\]", line)
         parsed_links = []
         for wikilink in found_links:
@@ -271,7 +292,7 @@ class ObsidianVault:
                 properties["parsed_context"] = markdownToHtml(line)
 
             rel = Link("inline", properties)
-            parsed_links.append((wikilink, rel))
+            parsed_links.append((title, rel))
         return parsed_links
 
     @staticmethod
@@ -315,6 +336,9 @@ class ObsidianVault:
 
         return title, link_display_text, header
 
+    def create_chunk(self, chunk: Document) -> Chunk:
+        pass
+
     def typed_list_parse(
         self,
         file: io.TextIOWrapper,
@@ -324,7 +348,8 @@ class ObsidianVault:
         note_name = path.stem
         note_properties, line = self.get_note_properties_from_header(file, note_name)
 
-        relations = defaultdict(list)
+        note_to_note_relations = defaultdict(list)
+        note_to_chunk_relations = defaultdict(list)
         note_properties[self._OBSIDIAN_URL_PROP_NAME] = ObsidianVault.obsidian_url(
             note_name, self._VAULT_NAME
         )
@@ -341,10 +366,14 @@ class ObsidianVault:
         else:
             chunks = [Document(page_content=file.read())]
 
-        note_properties["chunks"] = chunks
+        # note_properties["chunks"] = chunks
 
         lines = []
+        note_chunks = []
         for chunk_idx, chunk in enumerate(chunks):
+            chunk_to_node_relations = defaultdict(list)
+            chunk_to_chunk_relations = defaultdict(list)
+
             for line in chunk.page_content.split("\n"):
                 lines.append(line)
                 # TODO: Hand the code for Typed_links with their prefix, though I'm not sure what that is.
@@ -357,7 +386,47 @@ class ObsidianVault:
 
                 line_links = self.get_wiki_from_line(line, note_name, chunk_idx)
                 for wikilink, rel in line_links:
-                    relations[wikilink].append(rel)
+                    header = rel.properties["header"]
+                    if header != "":
+                        title = rel.properties["title"]
+                        note_to_chunk_relations[f"{title}#{header}"].append(rel)
+                        chunk_to_chunk_relations[f"{title}#{header}"].append(rel)
+
+                    note_to_note_relations[wikilink].append(rel)
+                    chunk_to_node_relations[wikilink].append(rel)
+            try:
+                # TODO: Replace the Enumeration with the Metadata Extraction of the Source header
+                chunk_properties = {}
+
+                nick_name = " ".join(chunk.page_content.split("\n")[0].split(" ")[:5])[
+                    :35
+                ]
+                chunk_properties["nick_name"] = nick_name
+                chunk_properties["chunk_index"] = chunk_idx
+                chunk_properties["content"] = chunk.page_content
+                chunk_properties["metadata"] = json.dumps(chunk.metadata)
+
+                try:
+                    if EMBEDDING_ENABLED:
+                        chunk_properties["embedding"] = wrap_embedding(
+                            embeddings, chunk.page_content
+                        )
+                except Exception as e:
+                    parse_log.critical(
+                        f"Still creating Chunk, though failed Embedding of Chunk {chunk_idx} on {note_name} with {e}"
+                    )
+                note_chunk = Note_Chunk(
+                    chunk_idx,
+                    out_note_relationships=chunk_to_node_relations,
+                    out_chunk_relationships=chunk_to_chunk_relations,
+                    properties=chunk_properties,
+                )
+                note_chunks.append(note_chunk)
+
+            except Exception as e:
+                parse_log.critical(
+                    f"Failed During the creation of Chunk {chunk_idx} on {note_name} with {e}"
+                )
 
         raw_content = "".join(lines)
         if self._ENABLE_MARKDOWN_TO_HTML:
@@ -367,7 +436,9 @@ class ObsidianVault:
             note_name,
             tags,
             raw_content,
-            out_relationships=relations,
+            chunks=note_chunks,
+            out_relationships=note_to_note_relations,
+            out_chunk_relationships=note_to_chunk_relations,
             properties=note_properties,
         )
 
@@ -422,8 +493,11 @@ class MarkdownThenRecursiveSplit:
 
 if __name__ == "__main__":
     print("Quacks like a duck, looks like a goose.")
-    # vault_path = "/home/xoph/SlipBoxCopy/Slip Box"
-    vault_path = "/home/xoph/repos/github/nfroseth/world_graph/test_vault"
+    embeddings, dim = load_embedding_model()
+    parse_log.info(f"Embedding model:{embeddings} Dimensions:{dim}")
+
+    vault_path = "/home/xoph/SlipBoxCopy/Slip Box"
+    # vault_path = "/home/xoph/repos/github/nfroseth/world_graph/test_vault"
     splitter = MarkdownThenRecursiveSplit()
 
     vault = ObsidianVault(vault_path=vault_path, vault_name="TEST_VAULT")

@@ -23,19 +23,46 @@ class Link:
         return self.type + self.properties.__str__()
 
 
+class Note_Chunk:
+    def __init__(
+        self,
+        chunk_index: int,
+        properties={},
+        out_note_relationships={},
+        in_note_relationships={},
+        out_chunk_relationships={},
+        in_chunk_relationships={},
+    ):
+        self.chunk_index = chunk_index
+        self.properties = properties
+        self.out_note_relationships = out_note_relationships
+        self.in_note_relationships = in_note_relationships
+        self.out_chunk_relationships = out_chunk_relationships
+        self.in_chunk_relationships = in_chunk_relationships
+
+    def __str__(self):
+        return self.chunk_index + self.properties.__str__()
+
+
 class Note:
     def __init__(
         self,
         name: str,
         tags: List[str],
         content: str,
+        chunks: List[Note_Chunk],
         # chunks: List[Document],
         properties={},
         out_relationships={},
         in_relationships={},
+        out_chunk_relationships={},
+        in_chunk_relationships={},
     ):
+        self.chunks = chunks
         self.out_relationships = out_relationships
         self.in_relationships = in_relationships
+        self.out_chunk_relationships = out_chunk_relationships
+        self.in_chunk_relationships = in_chunk_relationships
         self.properties = properties
         self.properties["name"] = name
         self.properties["content"] = content
@@ -71,10 +98,9 @@ class Note:
             [isinstance(tag, str) for tag in self.tags]
         ), "Tags are not a list or a tag is not a string"
         return len(self.tags) > 0
-    
+
     def to_properties_from_node() -> Dict:
         pass
-
 
     def __str__(self):
         props = [
@@ -104,7 +130,9 @@ class Relationship(StructuredRel):
     parsed_context = StringProperty()
     link_display_text = StringProperty()
 
+
 class Chunk(SemiStructuredNode):
+    nick_name = StringProperty()
     chunk_index = IntegerProperty(required=True)
     content = StringProperty(required=True)
     metadata = JSONProperty(required=True)
@@ -116,6 +144,7 @@ class Chunk(SemiStructuredNode):
 
     out_relationships = RelationshipTo("Node", "RELATED_TO", model=Relationship)
     in_relationships = RelationshipFrom("Node", "RELATED_TO", model=Relationship)
+
 
 class Node(SemiStructuredNode):
     uid = UniqueIdProperty()

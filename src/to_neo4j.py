@@ -14,10 +14,10 @@ from neomodel import config, db
 from note import Link, Note, Relationship, Node, Chunk
 from langchain_core.documents import Document
 from langchain_core.embeddings.embeddings import Embeddings
-from langchain_community.embeddings import InfinityEmbeddings
 from langchain_community.vectorstores import Neo4jVector
 
 from parse_obsidian_vault import ObsidianVault, MarkdownThenRecursiveSplit
+
 # from get_embedding import timing
 
 
@@ -67,18 +67,12 @@ def escape_cypher(string):
         r += " "
     return r
 
-# @timing
-def wrap_embedding(embeddings:Embeddings, text):
-    return embeddings.embed_query(text)
 
 @db.write_transaction
-def node_from_note_and_fill_communities(
-    note: Note, communities: List[str], embeddings: Embeddings
-):
+def node_from_note_and_fill_communities(note: Note, communities: List[str]):
     tags = [CATEGORY_NO_TAGS]
     escaped_tags = [escape_cypher(tag) for tag in note.tags] if note.has_tags else tags
     properties = {}
-    chunk_nodes = []
     for prop, val in note.properties.items():
         if isinstance(val, str) or isinstance(val, Path):
             properties[prop] = escape_cypher(str(val))
@@ -86,32 +80,6 @@ def node_from_note_and_fill_communities(
             [isinstance(prop_it, str) for prop_it in val]
         ):
             properties[prop] = [escape_cypher(prop_it) for prop_it in val]
-        elif isinstance(val, list) and all(
-            [isinstance(prop_it, Document) for prop_it in val]
-        ):
-            # TODO: Replace the Enumeration with the Metadata Extraction of the Source header
-            for idx, doc in enumerate(val):
-                try:
-                    chunk_properties = {}
-                    chunk_properties["chunk_index"] = idx
-                    chunk_properties["content"] = doc.page_content
-                    chunk_properties["metadata"] = json.dumps(doc.metadata)
-                    try:
-                        chunk_properties["embedding"] = wrap_embedding(embeddings, doc.page_content)
-                    except Exception as e:
-                        parse_log.critical(
-                            f"Still creating Chunk, though failed Embedding of Chunk {idx} on {note.name} with {e}"
-                        )
-
-                    # TODO: Read or load chunk embeddings
-
-                    chunk = Chunk(**chunk_properties)
-                    chunk.save()
-                    chunk_nodes.append(chunk)
-                except Exception as e:
-                    parse_log.critical(
-                        f"Failed During the creation of Chunk {idx} on {note.name} with {e}"
-                    )
         else:
             parse_log.critical(
                 f"During node creation Property Value was neither a str or list of str, nor list of Docs on {note.name} skipping {prop}"
@@ -125,7 +93,20 @@ def node_from_note_and_fill_communities(
     node.save()
 
     prev_chunk = None
-    for chunk in chunk_nodes:
+    neo_chunks = []
+    for chunk_note in note.chunks:
+        try:
+            chunk_kwargs = chunk_note.properties
+            chunk_kwargs["chunk_index"] = chunk_note.chunk_index
+
+            chunk = Chunk(**chunk_kwargs)
+            chunk.save()
+            neo_chunks.append(chunk)
+        except Exception as e:
+            parse_log.critical(
+                f"Failed to Convert and save note_chunk to neomodel Chunk Obj"
+            )
+
         if chunk.chunk_index == 0:
             first_rel = node.head.connect(chunk)
             # first_rel.save()
@@ -138,7 +119,7 @@ def node_from_note_and_fill_communities(
             # next_rel.save()
         prev_chunk = chunk
 
-    return node, escaped_tags, community
+    return node, escaped_tags, community, neo_chunks
 
 
 # From: https://stackoverflow.com/a/21625285
@@ -176,23 +157,15 @@ def create_dangling(name: str, vault_name: str, all_communities: List[str]) -> N
 
 
 @db.write_transaction
-def create_links(links: List[Link], source_node: Node, target_node: Node):
+def create_links(
+    links: List[Link], source_node: Node, target_node: Node, rel_name: str
+):
     for link in links:
         properties = {}
         for property, value in link.properties.items():
             properties[property] = escape_cypher(str(value))
-        rel = source_node.out_relationships.connect(target_node, properties)
+        rel = source_node.__dict__[rel_name].connect(target_node, properties)
         rel.save()
-
-
-def load_embedding_model(model_name: Optional[str] = None) -> Tuple[Embeddings, int]:
-    infinity_api_url = "http://127.0.0.1:7997"
-    embeddings = InfinityEmbeddings(
-        model="BAAI/bge-small-en-v1.5", infinity_api_url=infinity_api_url
-    )
-    dimension = 384 #TODO: Embed Example and get length
-
-    return embeddings, dimension
 
 
 @db.write_transaction
@@ -206,10 +179,9 @@ def create_vector_index(dimension: int):
         {"dimensions": dimension},
     )
 
+
 if __name__ == "__main__":
     print("Quacks like a duck, looks like a goose.")
-    embeddings, dim = load_embedding_model()
-    parse_log.info(f"Embedding model:{embeddings} Dimensions:{dim}")
 
     #  don't use localhost (intermediate) anthony explains #534
     # https://www.youtube.com/watch?v=98SYTvNw1kw
@@ -228,6 +200,7 @@ if __name__ == "__main__":
         parse_log.debug(f"{results=}, {meta=}")
 
     vault_path = "/home/xoph/SlipBoxCopy/Slip Box"
+    # vault_path = "/home/xoph/SlipBoxCopy/Master_Daily-20240623T031310Z-001"
     # vault_path = "/home/xoph/repos/github/nfroseth/world_graph/test_vault"
 
     splitter = MarkdownThenRecursiveSplit()
@@ -237,30 +210,35 @@ if __name__ == "__main__":
     notes = vault.parsed_notes
 
     nodes = {}
+    chunks = {}
+
     parse_log.info(f"Starting the conversion to nodes.")
     all_tags = [CATEGORY_DANGLING, CATEGORY_NO_TAGS]
     all_communities = all_tags if COMMUNITY_TYPE == "tags" else [CATEGORY_DANGLING]
     for name, note in tqdm(notes.items()):
         # Communities are required to be changed and modified within the node constructor function
-        node, node_tags, _ = node_from_note_and_fill_communities(
-            note, all_communities, embeddings
+        node, node_tags, _, neo_chunks = node_from_note_and_fill_communities(
+            note,
+            all_communities,
         )
         apply_label_to_node(node, node_tags)
         all_tags += [tag for tag in node_tags if not tag in all_tags]
         nodes[name] = node
-    
+        chunks[name] = neo_chunks
+
     parse_log.info(f"All Nodes and Tag Labels Created.")
 
-    parse_log.info("Creating the vector index.")
-    create_vector_index(dim)
-
+    # parse_log.info("Creating the vector index.")
+    # create_vector_index(dim)
 
     rels_to_create = []
     nodes_to_create = []
     parse_log.info("Creating relationships")
     for name, note in tqdm(notes.items()):
 
-        no_outgoing_links = not note.out_relationships.keys()
+        no_outgoing_links = (
+            len(note.out_relationships) == 0 and len(note.out_chunk_relationships) == 0
+        )
         if no_outgoing_links:
             continue
 
@@ -272,4 +250,69 @@ if __name__ == "__main__":
                 nodes_to_create.append(nodes[target])
             target_node = nodes[target]
             # TODO: Move the Links to Batches
-            create_links(links, source_node, target_node)
+            create_links(links, source_node, target_node, "out_relationships")
+
+        for target_chunk, links in note.out_chunk_relationships.items():
+            # TODO: Do we care about Dangling Chunks... Not for now...
+            title, header = target_chunk.split("#")
+
+            if title not in nodes:
+                nodes[title] = create_dangling(title, VAULT_NAME, all_communities)
+                apply_label_to_node(nodes[title], [CATEGORY_DANGLING])
+                nodes_to_create.append(nodes[title])
+
+            if title not in notes:
+                parse_log.warning(f"Tried to Link a Chunk to an Orphan Note")
+                parse_log.debug(f"From {name=} to {title=}, {header=}")
+            else:
+                try:
+                    for idx, chunk_note in enumerate(notes[title].chunks):
+                        content = chunk_note.properties["content"]
+                        pattern = fr"#{{1,6}} +({header})(?=\n)"
+                        match = re.match(pattern, content)
+                        if match:
+                            target_chunk = chunks[name][idx]
+                            create_links(links, source_node, target_chunk, "out_chunks")
+                except Exception as e:
+                    parse_log.critical(f"Failed on Chunk Linking with {e}")
+
+        for idx, note_chunk in enumerate(notes[name].chunks):
+
+            source_chunk = chunks[name][idx]
+
+            for target, links in note_chunk.out_note_relationships.items():
+
+                if target not in nodes:
+                    nodes[target] = create_dangling(target, VAULT_NAME, all_communities)
+                    apply_label_to_node(nodes[target], [CATEGORY_DANGLING])
+                    nodes_to_create.append(nodes[target])
+
+                target_node = nodes[target]
+                create_links(links, source_chunk, target_node, "out_relationships")
+
+            for target_chunk, links in note_chunk.out_chunk_relationships.items():
+                # TODO: Do we care about Dangling Chunks... Not for now...
+                title, header = target_chunk.split("#")
+
+                if title not in nodes:
+                    nodes[title] = create_dangling(title, VAULT_NAME, all_communities)
+                    apply_label_to_node(nodes[title], [CATEGORY_DANGLING])
+                    nodes_to_create.append(nodes[title])
+
+                if title not in notes:
+                    parse_log.warning(f"Tried to Link a Chunk to an Orphan Note")
+                    parse_log.debug(f"From {name=} to {title=}, {header=}")
+                else:
+                    try:
+                        title, header = target_chunk.split("#")
+                        for idx, chunk_note in enumerate(notes[title].chunks):
+                            content = chunk_note.properties["content"]
+                            pattern = f"#{{1,6}} +({header})(?=\n)"
+                            match = re.match(pattern, content)
+                            if match:
+                                target_chunk = chunks[name][idx]
+                                create_links(
+                                    links, source_chunk, target_chunk, "out_chunks"
+                                )
+                    except Exception as e:
+                        parse_log.critical(f"Failed on Chunk Linking with {e}")
