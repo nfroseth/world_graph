@@ -132,7 +132,7 @@ class Relationship(StructuredRel):
 
 
 class Chunk(SemiStructuredNode):
-    nick_name = StringProperty()
+    name = StringProperty(required=True)
     chunk_index = IntegerProperty(required=True)
     content = StringProperty(required=True)
     metadata = JSONProperty(required=True)

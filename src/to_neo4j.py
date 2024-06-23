@@ -1,46 +1,24 @@
-import json
 import re
 import os
 import logging
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 
-from joblib import Memory
-import requests
 from tqdm import tqdm
-
 
 from neomodel import config, db
 from note import Link, Note, Relationship, Node, Chunk
-from langchain_core.documents import Document
-from langchain_core.embeddings.embeddings import Embeddings
-from langchain_community.vectorstores import Neo4jVector
-
 from parse_obsidian_vault import ObsidianVault, MarkdownThenRecursiveSplit
-
-# from get_embedding import timing
-
 
 parse_log = logging.getLogger(__name__)
 parse_log.setLevel(logging.INFO)
 parse_log.addHandler(logging.StreamHandler())
 
-
-memory = Memory("/home/xoph/repos/github/nfroseth/world_graph/joblib_memory_cache")
-
-COMMUNITY_TYPE = "tags"  # tags, folders, none
-CATEGORY_NO_TAGS = "SMD_no_tags"
-CATEGORY_DANGLING = "SMD_dangling"
-
-PROP_COMMUNITY = "SMD_community"
-
-PROP_VAULT = "SMD_vault"  # TODO: What do these mean or do?
-PROP_PATH = (
-    "SMD_path"  # TODO: What do these mean or do? Looking at the parsing and graph code
-)
 VAULT_NAME = "TEST_VAULT"
 
-CLEAR_ON_CONNECT = True
+COMMUNITY_TYPE = "tags"  # tags, folders, none
+CATEGORY_NO_TAGS = "OBS_NO_TAGS"
+CATEGORY_DANGLING = "OBS_DANGLING"
 
 
 def get_community(note: Note) -> str:
@@ -48,7 +26,9 @@ def get_community(note: Note) -> str:
         # TODO: Why only take the First of the Tags for the community of a Note?
         community = escape_cypher(note.tags[0]) if note.has_tags else CATEGORY_NO_TAGS
     elif COMMUNITY_TYPE == "folders":
-        community = str(Path(note.properties[PROP_PATH]).parent)
+        community = str(
+            Path(note.properties[ObsidianVault._FILE_PATH_PROP_NAME]).parent
+        )
     return community
 
 
@@ -80,14 +60,17 @@ def node_from_note_and_fill_communities(note: Note, communities: List[str]):
             [isinstance(prop_it, str) for prop_it in val]
         ):
             properties[prop] = [escape_cypher(prop_it) for prop_it in val]
+        elif val is None:
+            parse_log.warning(f"Property Value of {prop} was None on {note.name}")
         else:
             parse_log.critical(
-                f"During node creation Property Value was neither a str or list of str, nor list of Docs on {note.name} skipping {prop}"
+                "During node creation Property Value was neither a str, "
+                f"list of str on {note.name} skipping {prop}"
             )
 
     community = get_community(note)
     communities.append(community)
-    properties[PROP_COMMUNITY] = community.index(community)
+    properties[ObsidianVault._PROP_COMMUNITY] = community.index(community)
 
     node = Node(**properties)
     node.save()
@@ -149,7 +132,7 @@ def create_dangling(name: str, vault_name: str, all_communities: List[str]) -> N
         "community": all_communities.index(CATEGORY_DANGLING),
         "obsidian_url": escape_cypher(ObsidianVault.obsidian_url(name, vault_name)),
         "content": "Orphan",
-        PROP_VAULT: vault_name,
+        ObsidianVault._OBSIDIAN_VAULT_PROP_NAME: vault_name,
     }
     node = Node(**properties)
     node.save()
@@ -180,24 +163,26 @@ def create_vector_index(dimension: int):
     )
 
 
-if __name__ == "__main__":
-    print("Quacks like a duck, looks like a goose.")
-
-    #  don't use localhost (intermediate) anthony explains #534
-    # https://www.youtube.com/watch?v=98SYTvNw1kw
+def setup_neo4j_connection(clear_on_connect: bool = False) -> Tuple[str, str, str]:
     url = os.getenv("NEO4J_URI", "neo4j://127.0.0.1:7687")
     username = os.getenv("NEO4J_USER", "neo4j")
     password = os.getenv("NEO4J_PASSWORD", "neo4jneo4j")
-    # config.DATABASE_URL = 'bolt://neo4j:neo4jneo4j@localhost:7687'
     config.DATABASE_URL = f"bolt://{username}:{password}@127.0.0.1:7687"
 
-    if CLEAR_ON_CONNECT:
+    if clear_on_connect:
         parse_log.info(f"Clearing Neo4j Database {VAULT_NAME=}")
-        # TODO: Set Prop Vault on Chunks
+        cypher = f"MATCH (n) DETACH DELETE n"  # Delete Everything
         # cypher = f"MATCH (n) WHERE n.{PROP_VAULT}='{VAULT_NAME}' DETACH DELETE n"
-        cypher = f"MATCH (n) DETACH DELETE n"
         results, meta = db.cypher_query(cypher)
         parse_log.debug(f"{results=}, {meta=}")
+
+    return url, username, password
+
+
+if __name__ == "__main__":
+    print("Quacks like a duck, looks like a goose.")
+
+    url, username, password = setup_neo4j_connection(clear_on_connect=True)
 
     vault_path = "/home/xoph/SlipBoxCopy/Slip Box"
     # vault_path = "/home/xoph/SlipBoxCopy/Master_Daily-20240623T031310Z-001"
@@ -268,7 +253,7 @@ if __name__ == "__main__":
                 try:
                     for idx, chunk_note in enumerate(notes[title].chunks):
                         content = chunk_note.properties["content"]
-                        pattern = fr"#{{1,6}} +({header})(?=\n)"
+                        pattern = rf"#{{1,6}} +({header})(?=\n)"
                         match = re.match(pattern, content)
                         if match:
                             target_chunk = chunks[name][idx]

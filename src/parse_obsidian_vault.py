@@ -6,9 +6,9 @@ import io
 import logging
 from collections import defaultdict
 from pathlib import Path
+import string
 from typing import Any, Dict, List, Optional, Tuple
 
-from joblib import Memory
 from tqdm import tqdm
 
 import yaml
@@ -23,7 +23,6 @@ from markdown.preprocessors import Preprocessor
 from langchain_text_splitters import (
     MarkdownHeaderTextSplitter,
     RecursiveCharacterTextSplitter,
-    TokenTextSplitter,
     TextSplitter,
 )
 from langchain_core.documents import Document
@@ -33,12 +32,6 @@ from langchain_community.embeddings import InfinityEmbeddings
 parse_log = logging.getLogger(__name__)
 parse_log.setLevel(logging.INFO)
 parse_log.addHandler(logging.StreamHandler())
-
-memory = Memory("/home/xoph/repos/github/nfroseth/world_graph/joblib_memory_cache")
-
-
-# INDEX_PROPS = ['name', 'aliases']
-
 
 PUNCTUATION = {
     "#",
@@ -57,9 +50,6 @@ PUNCTUATION = {
     "\\",
     os.linesep,
 }
-
-EMBEDDING_ENABLED = False
-INFINITY_API_URL = "http://127.0.0.1:7997"
 
 
 # @timing
@@ -164,10 +154,19 @@ def markdownToHtml(md_text):
     )
 
 
-# @memory.cache
-
-
 class ObsidianVault:
+    _OBSIDIAN_OVERLOADED_PREFIX = "obsidian_note_property_"
+    _OBSIDIAN_URL_PROP_NAME = "obsidian_url"
+    _OBSIDIAN_VAULT_PROP_NAME = "obsidian_vault"
+    _FILE_PATH_PROP_NAME = "file_path"
+
+    _PROP_COMMUNITY = "OBS_COMMUNITY"
+
+    _ENABLE_MARKDOWN_TO_HTML = False
+
+    _EMBEDDING_ENABLED = False
+    _INFINITY_API_URL = "http://127.0.0.1:7997"
+
     def __init__(
         self,
         vault_path: str,
@@ -177,15 +176,9 @@ class ObsidianVault:
     ):
         self._vault_path = vault_path
         self._note_ext_type = note_ext_type
+        self._VAULT_NAME = vault_name
 
         self._parsed_notes = {}
-
-        self._VAULT_NAME = vault_name
-        self._OBSIDIAN_OVERLOADED_PREFIX = "obsidian_note_property_"
-        self._OBSIDIAN_URL_PROP_NAME = "obsidian_url"
-        self._OBSIDIAN_VAULT_PROP_NAME = "obsidian_vault"
-        self._FILE_PATH_PROP_NAME = "file_path"
-        self._ENABLE_MARKDOWN_TO_HTML = False
 
         if make_tmp_copy:
             # TODO: Copy notes to a temp directory to allow for the suggestion of changes
@@ -224,47 +217,41 @@ class ObsidianVault:
                             tags.append(tag)
         return tags
 
-    def parse_obsidian_yaml_header(self, file: io.TextIOWrapper):
-        lines = []
-        line = file.readline()
-        while line != "---" + os.linesep and line:
-            lines.append(line)
-            line = file.readline()
-
-        properties = yaml.safe_load("".join(lines))
-
-        for key, value in dict(properties).items():
-            if (
-                key == "id"
-            ):  # ID Overloaded in Down Stream Neo4j, TODO: Move the ownership of conversion to Neo4j specific code
-                properties[f"{self._OBSIDIAN_OVERLOADED_PREFIX}{key}"] = value
-                del properties[key]
-            elif key == "tags":
-                properties[key] = ObsidianVault.from_yaml_string_get_hierarchical_tag(
-                    value
-                )
-
-        return properties
-
     def get_note_properties_from_header(
         self, file: io.TextIOWrapper, name
-    ) -> Tuple[Dict[str, Any], str]:
-        note_properties = {}
-        line = file.readline()
-        while line.strip() != "":
-            if line == "---" + os.linesep:
-                try:
-                    note_properties = self.parse_obsidian_yaml_header(file)
-                except Exception as e:
-                    parse_log.critical(
-                        f"Detected but Failed to read the properties yaml head from note: {name} with {e}"
-                    )
-                else:
-                    break
-            line = file.readline()
+    ) -> Dict[str, Any]:
 
-        parse_log.debug(f"{note_properties=}")
-        return note_properties, line
+        header_marker = f"---{os.linesep}"
+        first_line = True
+        note_properties = {}
+        header_lines = []
+        line = file.readline()
+
+        if line == header_marker:
+            while (line != "---" + os.linesep and line) or first_line:
+                first_line = False
+                header_lines.append(line)
+                line = file.readline()
+
+            try:
+                note_properties = yaml.safe_load("".join(header_lines))
+                for key, value in dict(note_properties).items():
+                    if key == "id":
+                        # ID Overloaded in Down Stream Neo4j, TODO: Move the ownership of conversion to Neo4j specific code
+                        note_properties[f"{self._OBSIDIAN_OVERLOADED_PREFIX}{key}"] = (
+                            value
+                        )
+                        del note_properties[key]
+                    elif key == "tags":
+                        note_properties[key] = (
+                            ObsidianVault.from_yaml_string_get_hierarchical_tag(value)
+                        )
+            except Exception as e:
+                parse_log.critical(
+                    f"Detected but Failed to read the properties yaml head from note: {name} with {e}"
+                )
+
+        return note_properties
 
     def get_wiki_from_line(
         self, line: str, note_title: str, chunk_idx: int
@@ -310,9 +297,16 @@ class ObsidianVault:
             # I'm linking to everything till the next header of that level
             link_split_header = link_title_maybe_header.split("#")
             if len(link_split_header) > 2:
-                parse_log.critical(
-                    f"At {note_title} Found link with more than two header # separators: {between_brackets}, Skipping..."
+                parse_log.warning(
+                    f"At {note_title} found {len(link_split_header)} # separators: {between_brackets}. "
+                    "Please use unique headers within Documents to be specific."
                 )
+
+                parse_log.warning(
+                    f"Multi Level # Header linking not fully implemented. "
+                    "Linking may point to first text match of header."
+                )
+                # TODO: You Can [[One#two#five]] and [[One#four#five]] two different headers whereas [[One#five]] is the first "five" header
             elif len(link_split_header) > 1:
                 header = link_split_header[1]
 
@@ -346,7 +340,7 @@ class ObsidianVault:
         splitter: Optional[TextSplitter] = None,
     ) -> Note:
         note_name = path.stem
-        note_properties, line = self.get_note_properties_from_header(file, note_name)
+        note_properties = self.get_note_properties_from_header(file, note_name)
 
         note_to_note_relations = defaultdict(list)
         note_to_chunk_relations = defaultdict(list)
@@ -374,7 +368,10 @@ class ObsidianVault:
             chunk_to_node_relations = defaultdict(list)
             chunk_to_chunk_relations = defaultdict(list)
 
+            first_line = None
             for line in chunk.page_content.split("\n"):
+                if first_line is None:
+                    first_line = line
                 lines.append(line)
                 # TODO: Hand the code for Typed_links with their prefix, though I'm not sure what that is.
                 for tag in get_tags_from_line(line):
@@ -398,16 +395,20 @@ class ObsidianVault:
                 # TODO: Replace the Enumeration with the Metadata Extraction of the Source header
                 chunk_properties = {}
 
-                nick_name = " ".join(chunk.page_content.split("\n")[0].split(" ")[:5])[
-                    :35
-                ]
-                chunk_properties["nick_name"] = nick_name
+                # Name is the first five words or 35 char with out punctuation
+                chunk_name = " ".join(
+                    first_line.translate(
+                        str.maketrans("", "", string.punctuation)
+                    ).split(" ")[:5]
+                )[:35]
+                chunk_properties["name"] = chunk_name
                 chunk_properties["chunk_index"] = chunk_idx
                 chunk_properties["content"] = chunk.page_content
+                chunk_properties[self._OBSIDIAN_VAULT_PROP_NAME] = self._VAULT_NAME
                 chunk_properties["metadata"] = json.dumps(chunk.metadata)
 
                 try:
-                    if EMBEDDING_ENABLED:
+                    if self._EMBEDDING_ENABLED:
                         chunk_properties["embedding"] = wrap_embedding(
                             embeddings, chunk.page_content
                         )
@@ -462,7 +463,7 @@ class ObsidianVault:
 
 class MarkdownThenRecursiveSplit:
     def __init__(
-        self, headers_to_split_on=None, chunk_size=488, chunk_overlap=12
+        self, headers_to_split_on=None, chunk_size=244, chunk_overlap=12
     ) -> None:
         # Split an all levels of valid markdown headers
         headers_to_split_on = (
@@ -470,9 +471,9 @@ class MarkdownThenRecursiveSplit:
                 ("#", "Header 1"),
                 ("##", "Header 2"),
                 ("###", "Header 3"),
-                # ("####", "Header 4"),
-                # ("#####", "Header 5"),
-                # ("######", "Header 6"),
+                ("####", "Header 4"),
+                ("#####", "Header 5"),
+                ("######", "Header 6"),
             ]
             if not headers_to_split_on
             else headers_to_split_on
@@ -496,8 +497,8 @@ if __name__ == "__main__":
     embeddings, dim = load_embedding_model()
     parse_log.info(f"Embedding model:{embeddings} Dimensions:{dim}")
 
-    vault_path = "/home/xoph/SlipBoxCopy/Slip Box"
-    # vault_path = "/home/xoph/repos/github/nfroseth/world_graph/test_vault"
+    # vault_path = "/home/xoph/SlipBoxCopy/Slip Box"
+    vault_path = "/home/xoph/repos/github/nfroseth/world_graph/test_vault"
     splitter = MarkdownThenRecursiveSplit()
 
     vault = ObsidianVault(vault_path=vault_path, vault_name="TEST_VAULT")
