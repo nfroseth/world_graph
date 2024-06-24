@@ -10,6 +10,8 @@ from neomodel import config, db
 from note import Link, Note, Relationship, Node, Chunk
 from parse_obsidian_vault import ObsidianVault, MarkdownThenRecursiveSplit
 
+from langchain_experimental.text_splitter import SemanticChunker
+
 parse_log = logging.getLogger(__name__)
 parse_log.setLevel(logging.INFO)
 parse_log.addHandler(logging.StreamHandler())
@@ -19,6 +21,7 @@ VAULT_NAME = "TEST_VAULT"
 COMMUNITY_TYPE = "tags"  # tags, folders, none
 CATEGORY_NO_TAGS = "OBS_NO_TAGS"
 CATEGORY_DANGLING = "OBS_DANGLING"
+INDEX_PROPS = ['name', 'aliases']
 
 
 def get_community(note: Note) -> str:
@@ -165,6 +168,10 @@ def create_vector_index(dimension: int):
         {"dimensions": dimension},
     )
 
+@db.write_transaction
+def create_index(index_cypher:str):
+    db.cypher_query(index_cypher)
+
 
 def setup_neo4j_connection(clear_on_connect: bool = False) -> Tuple[str, str, str]:
     url = os.getenv("NEO4J_URI", "neo4j://127.0.0.1:7687")
@@ -186,16 +193,19 @@ if __name__ == "__main__":
     print("Quacks like a duck, looks like a goose.")
 
     url, username, password = setup_neo4j_connection(clear_on_connect=True)
+    embeddings, dim = ObsidianVault.load_embedding_model()
 
     vault_path = "/home/xoph/SlipBoxCopy/Slip Box"
-    vault_path = "/home/xoph/SlipBoxCopy/LorenzDuremdes/Second-Brain"
+    # vault_path = "/home/xoph/SlipBoxCopy/LorenzDuremdes/Second-Brain"
     # vault_path = "/home/xoph/SlipBoxCopy/Master_Daily-20240623T031310Z-001"
     # vault_path = "/home/xoph/repos/github/nfroseth/world_graph/test_vault"
 
-    splitter = MarkdownThenRecursiveSplit()
+    # splitter = MarkdownThenRecursiveSplit()
+    splitter = SemanticChunker(embeddings, breakpoint_threshold_type= "percentile", breakpoint_threshold_amount=60)
 
-    vault = ObsidianVault(vault_path=vault_path, vault_name="TEST_VAULT")
+    vault = ObsidianVault(vault_path=vault_path, vault_name="TEST_VAULT", embedding_enabled=False)
     vault.parse_obsidian_vault(splitter=splitter)
+
     notes = vault.parsed_notes
 
     nodes = {}
@@ -217,14 +227,14 @@ if __name__ == "__main__":
 
     parse_log.info(f"All Nodes and Tag Labels Created.")
 
-    # parse_log.info("Creating the vector index.")
-    # create_vector_index(dim)
 
     rels_to_create = []
     nodes_to_create = []
     parse_log.info("Creating relationships")
     for name, note in tqdm(notes.items()):
-
+        # Send batches to server. Greatly speeds up conversion.
+        # Create a List of all the Nodes and relationships and save all of them
+        # In batch vs one at a time.
         no_outgoing_links = (
             len(note.out_relationships) == 0 and len(note.out_chunk_relationships) == 0
         )
@@ -305,3 +315,33 @@ if __name__ == "__main__":
                                 )
                     except Exception as e:
                         parse_log.critical(f"Failed on Chunk Linking with {e}")
+
+    parse_log.info("Creating the vector index.")
+    create_vector_index(dim)
+
+    parse_log.info("Creating the texts indexes.")
+    for tag in tqdm(all_tags):
+        try:
+            for prop in INDEX_PROPS:
+                cypher_index = f"CREATE INDEX index_{prop}_{tag} IF NOT EXISTS FOR (n:{tag}) ON (n.{prop})"
+                create_index(cypher_index)
+            cypher_index = f"CREATE INDEX index_name_vault IF NOT EXISTS for (n:{tag}) ON (n.{prop})"
+            create_index(cypher_index)
+        except Exception as e:
+            parse_log.warning(f"Warning: Could not create index for {tag} due to {e}")
+
+    indexes = ["obsidian_name_alias", "obsidian_content"]
+    for index in indexes:
+        try:
+            cypher_index = f'CALL db.index.fulltext.drop(\"{index}\")'
+            create_index(cypher_index)
+        except Exception as e:
+            parse_log.warning(f"Warning: Could not drop {index} for {tag} due to {e}")
+
+    if all_tags:
+        cypher_index = "CALL db.index.fulltext.createNodeIndex(\"obsidian_name_alias\", [\"" + "\", \"".join(all_tags) + "\"], [\"name\", \"aliases\"])"
+        create_index(cypher_index)
+
+        # If index Content
+        cypher_index = "CALL db.index.fulltext.createNodeIndex(\"obsidian_content\", [\"" + "\", \"".join(all_tags) + "\"], [\"content\"])"
+        create_index(cypher_index)

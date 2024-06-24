@@ -9,6 +9,7 @@ from pathlib import Path
 import string
 from typing import Any, Dict, List, Optional, Tuple
 
+import requests
 from tqdm import tqdm
 
 import yaml
@@ -55,15 +56,6 @@ PUNCTUATION = {
 # @timing
 def wrap_embedding(embeddings: Embeddings, text):
     return embeddings.embed_query(text)
-
-
-def load_embedding_model(model_name: Optional[str] = None) -> Tuple[Embeddings, int]:
-    embeddings = InfinityEmbeddings(
-        model="BAAI/bge-small-en-v1.5", infinity_api_url=INFINITY_API_URL
-    )
-    dimension = 384  # TODO: Embed Example and get length
-
-    return embeddings, dimension
 
 
 # https://help.obsidian.md/Editing+and+formatting/Tags#Tag+format
@@ -163,8 +155,6 @@ class ObsidianVault:
     _PROP_COMMUNITY = "OBS_COMMUNITY"
 
     _ENABLE_MARKDOWN_TO_HTML = False
-
-    _EMBEDDING_ENABLED = False
     _INFINITY_API_URL = "http://127.0.0.1:7997"
 
     def __init__(
@@ -173,10 +163,14 @@ class ObsidianVault:
         vault_name: str,
         note_ext_type: str = ".md",
         make_tmp_copy: bool = False,
+        embedding_enabled: bool = False,
     ):
         self._vault_path = vault_path
         self._note_ext_type = note_ext_type
         self._VAULT_NAME = vault_name
+        self._EMBEDDING_ENABLED = embedding_enabled
+        if self._EMBEDDING_ENABLED:
+            self.embedding, _ = ObsidianVault.load_embedding_model()
 
         self._parsed_notes = {}
 
@@ -185,6 +179,25 @@ class ObsidianVault:
             raise NotImplementedError(
                 "Copy notes to a temp directory to allow for the suggestion of changes"
             )
+
+    @staticmethod
+    def load_embedding_model(
+        model_name: Optional[str] = None, dimension: Optional[int] = None
+    ) -> Tuple[Embeddings, int]:
+        embeddings = InfinityEmbeddings(
+            model="BAAI/bge-small-en-v1.5",
+            infinity_api_url=ObsidianVault._INFINITY_API_URL,
+        )
+        if dimension is None:
+            results = requests.post(
+                f"{ObsidianVault._INFINITY_API_URL}/embeddings",
+                json={
+                    "model": "BAAI/bge-small-en-v1.5",
+                    "input": ["A sentence to encode."],
+                },
+            )
+            dimension = len(results.json()["data"][0]["embedding"])  # Expecting 384
+        return embeddings, dimension
 
     @property
     def parsed_notes(self) -> Dict[str, Note]:
@@ -355,12 +368,9 @@ class ObsidianVault:
         chunks = []
         if splitter is not None:
             raw_content_after_header = file.read()
-            chunks = splitter.split_text(raw_content_after_header)
-            # chunks = splitter.create_documents([raw_content_after_header])
+            chunks = splitter.split_documents([Document(raw_content_after_header)])
         else:
             chunks = [Document(page_content=file.read())]
-
-        # note_properties["chunks"] = chunks
 
         lines = []
         note_chunks = []
@@ -398,8 +408,10 @@ class ObsidianVault:
                 # Name is the first five words or 35 char with out punctuation
                 chunk_name = " ".join(
                     first_line.translate(
-                        str.maketrans("", "", string.punctuation)
-                    ).split(" ")[:5]
+                        str.maketrans(string.punctuation, " " * len(string.punctuation))
+                    )
+                    .strip()
+                    .split(" ")[:5]
                 )[:35]
                 chunk_properties["name"] = chunk_name
                 chunk_properties["chunk_index"] = chunk_idx
@@ -410,7 +422,7 @@ class ObsidianVault:
                 try:
                     if self._EMBEDDING_ENABLED:
                         chunk_properties["embedding"] = wrap_embedding(
-                            embeddings, chunk.page_content
+                            self.embeddings, chunk.page_content
                         )
                 except Exception as e:
                     parse_log.critical(
@@ -443,13 +455,18 @@ class ObsidianVault:
             properties=note_properties,
         )
 
-    def parse_obsidian_vault(self, splitter: Optional[TextSplitter] = None) -> None:
+    def parse_obsidian_vault(
+        self, splitter: Optional[TextSplitter] = None, limit: Optional[int] = None
+    ) -> None:
         parse_log.info(f"Starting the parsing of obsidian vault")
 
         note_tree = Path(self._vault_path).rglob("*" + self._note_ext_type)
         parsed_notes = {}
 
-        for path in tqdm(note_tree):
+        for idx, path in tqdm(enumerate(note_tree)):
+            if limit is not None and idx < limit:
+                parse_log.warning("Hit limit, stopping parse short.")
+                break
             name = path.stem
             parse_log.debug(f"Reading note {name=}")
 
@@ -487,18 +504,23 @@ class MarkdownThenRecursiveSplit:
             chunk_size=chunk_size, chunk_overlap=chunk_overlap
         )
 
-    def split_text(self, markdown_document: str) -> List[Document]:
-        md_header_splits = self.markdown_splitter.split_text(markdown_document)
-        return self.char_splitter.split_documents(md_header_splits)
+    def split_documents(self, markdown_documents: List[Document]) -> List[Document]:
+        out_docs = []
+        for doc in markdown_documents:
+            md_header_splits = self.markdown_splitter.split_text(doc.page_content)
+            splits = self.char_splitter.split_documents(md_header_splits)
+            out_docs.extend(splits)
+
+        return out_docs
 
 
 if __name__ == "__main__":
     print("Quacks like a duck, looks like a goose.")
-    embeddings, dim = load_embedding_model()
-    parse_log.info(f"Embedding model:{embeddings} Dimensions:{dim}")
+    # embeddings, dim = ObsidianVault.load_embedding_model()
+    # parse_log.info(f"Embedding model:{embeddings} Dimensions:{dim}")
 
-    # vault_path = "/home/xoph/SlipBoxCopy/Slip Box"
-    vault_path = "/home/xoph/repos/github/nfroseth/world_graph/test_vault"
+    vault_path = "/home/xoph/SlipBoxCopy/Slip Box"
+    # vault_path = "/home/xoph/repos/github/nfroseth/world_graph/test_vault"
     splitter = MarkdownThenRecursiveSplit()
 
     vault = ObsidianVault(vault_path=vault_path, vault_name="TEST_VAULT")
