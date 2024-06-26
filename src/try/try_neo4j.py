@@ -1,5 +1,5 @@
 from neo4j import GraphDatabase, RoutingControl
-from get_embedding import timing
+# from ..utils import timing
 
 URI = "neo4j://localhost:7687"
 AUTH = ("neo4j", "neo4jneo4j")
@@ -26,23 +26,26 @@ def print_friends(driver, name):
         print(record["friend.name"])
 
 
-@timing
+# @timing
 def get_related_linked_note(driver, name):
-    cypher_query = '''
-        MATCH (p)-[r:RELATED_TO]->(n) WHERE p.name = $name
-        RETURN n.name
-        UNION
-        MATCH (n)-[r:RELATED_TO]->(p) WHERE p.name = $name
-        RETURN n.name
-    '''
+    name = "Typing"
+    depth = 5
+    cypher_query = f"""
+    MATCH (n {{name:"{name}"}}) - [r0*..{depth}] -> (p:Chunk) 
+    return p
+    UNION
+    MATCH (p:Chunk)  - [r0:RELATED_TO*..{depth}] -> (n {{name:"{name}"}}) 
+    RETURN p"""
     # print(cypher_query)
     records, summary, keys = driver.execute_query(
-        cypher_query, name=name, database_="neo4j", routing_=RoutingControl.READ
+        cypher_query, database_="neo4j", routing_=RoutingControl.READ
     )
     
     print(f"Cypher query {cypher_query}")
     for record in records:
-        print(f'{record["n.name"]=}')
+        print(f'{list(record["p"].keys())}')
+        print(f'{record["p"]["identity"]=} {record["p"]["metadata"]=}')
+        print(f'{record["p"]["name"]=} {record["p"]["content"]=}')
 
     return records
 
@@ -54,3 +57,4 @@ with GraphDatabase.driver(URI, auth=AUTH) as driver:
     # search_note = "3-1-22 Two Months in with some progress"
     # search_note = "2-22-22 Frantic, yet exciting"
     search_note = "Typing"
+    get_related_linked_note(driver, search_note)

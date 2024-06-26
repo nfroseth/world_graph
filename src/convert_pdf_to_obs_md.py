@@ -8,7 +8,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from tqdm import tqdm
 from unstructured.partition.pdf import partition_pdf
 
-from get_embedding import timing
+from utils import timing
 
 pdf_log = logging.getLogger(__name__)
 pdf_log.setLevel(logging.DEBUG)

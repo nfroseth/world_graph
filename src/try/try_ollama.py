@@ -19,3 +19,4 @@ chain = prompt | llm | StrOutputParser()
 # You can use LangServe to deploy your application for
 # production
 print(chain.invoke({"topic": "Space travel"}))
+

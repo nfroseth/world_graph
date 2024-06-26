@@ -194,18 +194,18 @@ if __name__ == "__main__":
     print("Quacks like a duck, looks like a goose.")
     url, username, password = setup_neo4j_connection(clear_on_connect=True)
 
-    # vault_path = "/home/xoph/SlipBoxCopy/Slip Box"
+    vault_path = "/home/xoph/SlipBoxCopy/Slip Box"
     # vault_path = "/home/xoph/SlipBoxCopy/LorenzDuremdes/Second-Brain"
-    vault_path = "/home/xoph/SlipBoxCopy/Master_Daily-20240625T165113Z-001/Master_Daily"
+    # vault_path = "/home/xoph/SlipBoxCopy/Master_Daily-20240625T165113Z-001/Master_Daily"
     # vault_path = "/home/xoph/repos/github/nfroseth/world_graph/test_vault"
 
-    # splitter = MarkdownThenRecursiveSplit()
-    embeddings, dim = ObsidianVault.load_embedding_model()
-    splitter = SemanticChunker(
-        embeddings,
-        breakpoint_threshold_type="percentile",
-        breakpoint_threshold_amount=30,
-    )
+    splitter = MarkdownThenRecursiveSplit()
+    # embeddings, dim = ObsidianVault.load_embedding_model()
+    # splitter = SemanticChunker(
+    #     embeddings,
+    #     breakpoint_threshold_type="percentile",
+    #     breakpoint_threshold_amount=30,
+    # )
 
     vault = ObsidianVault(
         vault_path=vault_path, vault_name="TEST_VAULT", embedding_enabled=True
