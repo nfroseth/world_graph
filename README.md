@@ -2,6 +2,7 @@
 
 ## Limitations
 
+
 ### Wiki Link in Header
 in to_neo4j apply_label_to_node failed due to [[wiki link]] in header
 
@@ -29,3 +30,8 @@ tags:
 202405090915
 
 node_from_note_and_fill_communities
+
+## Next Steps
+
+Implement:
+- create_obs_note_from_video.py

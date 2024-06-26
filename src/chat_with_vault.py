@@ -3,11 +3,29 @@ from langchain.prompts import PromptTemplate
 from langchain_openai import ChatOpenAI
 from langchain.chains import LLMChain
 
-template = """
-You are a helpful AI assistant. Provide the answer for the following question:
+# template = """
+# You are a helpful AI assistant. Provide the answer for the following question:
 
-Question: {question}
-Answer:
+# Question: {question}
+# Answer:
+# """
+
+template = """
+You are a customer support agent, helping posters by following directives and answering questions.
+Generate your response by following the steps below:
+1. Recursively break-down the post into smaller questions/directives
+2. For each atomic question/directive:
+2a. Select the most relevant information from the context in light of the conversation history
+3. Generate a draft response using the selected information, whose brevity/detail are tailored to the poster’s expertise
+4. Remove duplicate content from the draft response
+5. Generate your final response after adjusting it to increase accuracy and relevance
+6. Now only show your final response! Do not provide any explanations or details
+
+POST:
+{question}
+If you are unable to help the reviewer, let them know that help is on the way.
+
+### Instruction:
 """
 
 llm = ChatOpenAI(

@@ -170,7 +170,7 @@ class ObsidianVault:
         self._VAULT_NAME = vault_name
         self._EMBEDDING_ENABLED = embedding_enabled
         if self._EMBEDDING_ENABLED:
-            self.embedding, _ = ObsidianVault.load_embedding_model()
+            self.embeddings, _ = ObsidianVault.load_embedding_model()
 
         self._parsed_notes = {}
 
@@ -185,14 +185,14 @@ class ObsidianVault:
         model_name: Optional[str] = None, dimension: Optional[int] = None
     ) -> Tuple[Embeddings, int]:
         embeddings = InfinityEmbeddings(
-            model="BAAI/bge-small-en-v1.5",
+            model="mixedbread-ai/mxbai-embed-large-v1",
             infinity_api_url=ObsidianVault._INFINITY_API_URL,
         )
         if dimension is None:
             results = requests.post(
                 f"{ObsidianVault._INFINITY_API_URL}/embeddings",
                 json={
-                    "model": "BAAI/bge-small-en-v1.5",
+                    "model": "mixedbread-ai/mxbai-embed-large-v1",
                     "input": ["A sentence to encode."],
                 },
             )
@@ -421,6 +421,7 @@ class ObsidianVault:
 
                 try:
                     if self._EMBEDDING_ENABLED:
+                        #TODO: Do not embed chunks with less than c=3 words
                         chunk_properties["embedding"] = wrap_embedding(
                             self.embeddings, chunk.page_content
                         )
@@ -464,7 +465,7 @@ class ObsidianVault:
         parsed_notes = {}
 
         for idx, path in tqdm(enumerate(note_tree)):
-            if limit is not None and idx < limit:
+            if limit is not None and idx > limit:
                 parse_log.warning("Hit limit, stopping parse short.")
                 break
             name = path.stem
