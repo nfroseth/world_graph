@@ -15,7 +15,7 @@ from langchain_text_splitters import (
     TextSplitter,
 )
 
-from ..utils import timing
+from ..perf import timing
 from note import Note
 
 memory = Memory("/home/xoph/repos/github/nfroseth/world_graph/joblib_memory_cache")

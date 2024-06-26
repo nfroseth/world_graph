@@ -15,7 +15,7 @@ from langchain.schema.runnable.config import RunnableConfig
 from langchain_community.embeddings import InfinityEmbeddings
 import requests
 
-from utils import timing
+from perf import timing
 
 # from parse_obsidian_vault import ObsidianVault
 
@@ -93,7 +93,6 @@ POSTER’S EXPERTISE: {expertise_level}
 Beginners want detailed answers with explanations. Experts want concise answers without explanations.
 If you are unable to help the reviewer, let them know that help is on the way.
 """
-# curl http://localhost:11434/api/generate -d '{"model": "llama3", "prompt": "Why is the sky blue?"}'
 
 # template = """
 # Answer the question using the provided context. Your answer should be in your own words and be no longer than 50 words.
@@ -113,12 +112,9 @@ If you are unable to help the reviewer, let them know that help is on the way.
 #     # model_kwargs={"repeat_penalty":1.2},
 #     # streaming=True
 # )
-# llm = ChatOllama(model="qwen2:7b-instruct-q6_K")
+
 llm = ChatOllama(model="qwen2:7b-instruct-q6_K")
 # llm = ChatOllama(model="meta-llama-3-8b-instruct.Q5_1.gguf:latest")
-
-# 08022022
-
 
 @timing
 def related_notes(driver, name, depth: int = 5):

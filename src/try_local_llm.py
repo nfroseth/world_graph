@@ -13,7 +13,7 @@ from tqdm import tqdm
 # from unstructured.partition.auto import partition_pdf
 from unstructured.partition.pdf import partition_pdf
 
-from utils import timing
+from perf import timing
 
 
 PDF_DIR = "pdf_note_output/unstructured_version"
