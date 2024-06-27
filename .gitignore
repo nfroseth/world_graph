@@ -1,6 +1,7 @@
 #
 source_texts/
 joblib_memory_cache/
+.joblib_cache/
 */Good Faith Schedule.md
 test_files/
 vectors/
@@ -12,6 +13,7 @@ milvus/
 embedEtcd.yaml
 scripts/
 data/
+_output/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

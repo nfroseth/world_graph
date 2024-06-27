@@ -3,12 +3,9 @@ from typing import List
 from neomodel import config, db
 import chainlit as cl
 
-import numpy as np
-
 from neo4j import GraphDatabase, RoutingControl
 from langchain_community.vectorstores import Neo4jVector
 from langchain.prompts import PromptTemplate
-from langchain_openai import ChatOpenAI
 from langchain_community.chat_models import ChatOllama
 from langchain_core.output_parsers import StrOutputParser
 from langchain.schema.runnable.config import RunnableConfig
@@ -16,8 +13,6 @@ from langchain_community.embeddings import InfinityEmbeddings
 import requests
 
 from perf import timing
-
-# from parse_obsidian_vault import ObsidianVault
 
 
 def setup():
